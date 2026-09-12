@@ -14,6 +14,8 @@ Configure em `apps/web/.env.local` para desenvolvimento e em **Vercel → Projec
 
 O projeto atual é `asicmonitor` e sua URL é `https://dsycgqvtvaxhfjxmsatw.supabase.co`.
 
+As rotas `/dashboard`, `/farms`, `/billing` e `/admin` exigem uma sessão válida. O cadastro cria automaticamente um registro em `profiles` por meio da migration `0002_auth_profiles.sql`.
+
 ## Aplicação Vercel
 
 | Variável | Uso |
