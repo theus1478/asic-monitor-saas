@@ -1,0 +1,8 @@
+{
+  "api_url": "https://seu-dominio.com/api/agent/metrics",
+  "agent_token": "gere-uma-chave-no-painel",
+  "poll_interval_seconds": 30,
+  "miners": [
+    { "name": "ASIC-01", "host": "192.168.1.101", "port": 4028 }
+  ]
+}

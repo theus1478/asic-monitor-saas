@@ -1,0 +1,9 @@
+import { PageHeader, Shell } from "../components";
+import { clients } from "../../lib/demo-data";
+
+export default function AdminPage() {
+  return <Shell admin><PageHeader title="Gestão da plataforma" description="Acompanhe clientes, licenças e pagamentos em um só lugar." action={<button className="button">Novo cliente</button>} />
+    <section className="metrics-grid"><article className="card"><p className="eyebrow">CLIENTES ATIVOS</p><div className="metric">24</div><p className="positive">+3 neste mês</p></article><article className="card"><p className="eyebrow">MÁQUINAS LICENCIADAS</p><div className="metric">486</div><p className="muted">73% da capacidade contratada</p></article><article className="card"><p className="eyebrow">MRR ESTIMADO</p><div className="metric">US$ 1.284</div><p className="muted">equivalente em USDT</p></article><article className="card"><p className="eyebrow">PAGAMENTOS PENDENTES</p><div className="metric">3</div><p className="warning-text">US$ 186 em aberto</p></article></section>
+    <section id="clientes" className="card table-card"><div className="section-title"><div><h2>Clientes</h2><p>Contas e situação das assinaturas</p></div><button className="button secondary">Exportar</button></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Máquinas</th><th>Assinatura</th><th>Renovação</th><th /></tr></thead><tbody>{clients.map(client => <tr key={client.email}><td><b>{client.name}</b><small>{client.email}</small></td><td>{client.machines}</td><td><span className={`badge ${client.subscription === "Ativa" ? "success" : client.subscription === "Pendente" ? "warning" : "neutral"}`}>{client.subscription}</span></td><td>{client.renewal}</td><td><button className="button secondary compact">Abrir</button></td></tr>)}</tbody></table></div></section>
+  </Shell>;
+}
