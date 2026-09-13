@@ -6,7 +6,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "ASIC Monitor Cloud",
   description: "Monitoramento de fazendas ASIC em nuvem.",
-  icons: { icon: "/favicon.svg" },
+  icons: { icon: "/favicon.svg?brand=2" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
