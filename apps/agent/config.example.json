@@ -3,6 +3,8 @@
   "agent_token": "gere-uma-chave-no-painel",
   "poll_interval_seconds": 30,
   "miners": [
-    { "name": "ASIC-01", "host": "192.168.1.101", "port": 4028 }
+    { "name": "ASIC-01", "ip": "192.168.1.101", "port": 4028, "type": "antminer" },
+    { "name": "ASIC-02", "ip": "192.168.1.102", "port": 4028, "type": "whatsminer" },
+    { "name": "ASIC-03", "ip": "192.168.1.103", "port": 4028, "type": "avalon" }
   ]
 }

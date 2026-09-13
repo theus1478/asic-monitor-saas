@@ -1,89 +1,9 @@
-#Requires -Version 5.1
-<#
-  Instalador do coletor ASIC Monitor Cloud.
-  Uso:
-    .\install-asic-monitor-agent.ps1 -ApiUrl "https://seu-dominio.vercel.app/api/agent/metrics" -AgentToken "SEU_TOKEN"
-
-  O coletor roda em segundo plano (Agendador de Tarefas do Windows, sem janela
-  visível), lê as ASICs configuradas na rede local e envia métricas por HTTPS.
-  Nenhuma porta da sua rede é aberta para a internet.
-#>
-param(
-  [Parameter(Mandatory = $false)][string]$ApiUrl,
-  [Parameter(Mandatory = $false)][string]$AgentToken,
-  [int]$PollIntervalSeconds = 30
-)
-
-$ErrorActionPreference = "Stop"
-$installDir = Join-Path $env:ProgramData "ASICMonitorAgent"
-$taskName = "ASICMonitorAgent"
-
-Write-Host "== Instalador do coletor ASIC Monitor Cloud ==" -ForegroundColor Cyan
-
-if (-not $ApiUrl) {
-  $ApiUrl = Read-Host "URL da API (ex: https://seu-dominio.vercel.app/api/agent/metrics)"
-}
-if (-not $AgentToken) {
-  $AgentToken = Read-Host "Token do agente (gerado no painel, em Fazendas)"
-}
-if (-not $ApiUrl -or -not $AgentToken) {
-  Write-Error "URL da API e token do agente são obrigatórios."
-  exit 1
-}
-
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) {
-  Write-Error "Python 3 não encontrado no PATH. Instale em https://www.python.org/downloads/ (marque 'Add to PATH') e rode este script novamente."
-  exit 1
-}
-
-New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-Write-Host "Instalando em $installDir"
-
-@'
-"""Coletor sem interface para execucao na rede local da fazenda."""
-import asyncio
-import json
-import os
-from datetime import datetime, timezone
-from pathlib import Path
-
-import httpx
-
-from miners import poll_miner
-
-
-def load_config() -> dict:
-    path = Path(os.environ.get("ASIC_MONITOR_CONFIG", "config.json"))
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-async def run() -> None:
-    config = load_config()
-    headers = {"Authorization": f"Bearer {config['agent_token']}"}
-    interval = max(10, int(config.get("poll_interval_seconds", 30)))
-    async with httpx.AsyncClient(timeout=15) as client:
-        while True:
-            miners = config.get("miners", [])
-            metrics = await asyncio.gather(*(poll_miner(m) for m in miners))
-            payload = {"observed_at": datetime.now(timezone.utc).isoformat(), "metrics": list(metrics)}
-            try:
-                response = await client.post(config["api_url"], headers=headers, json=payload)
-                response.raise_for_status()
-            except httpx.HTTPError as error:
-                print(f"Falha ao enviar metricas: {error}", flush=True)
-            await asyncio.sleep(interval)
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
-'@ | Set-Content -Path (Join-Path $installDir "service.py") -Encoding utf8
-
-@'
 """
 Clientes de API por fabricante, somente leitura:
 
 - Antminer  -> Vnish, via API HTTP  http://IP/api/v1/summary
+               (traz power_consumption medido; alguns modelos devolvem 0 e caem
+                pra estimativa por eficiencia W/TH).
 - Whatsminer-> BixBit, via socket 4028 "summary" (dados vem embrulhados em "Msg").
 - Avalon    -> firmware oficial, via socket 4028 "estats" (string MM ID + PS[]).
 """
@@ -97,15 +17,20 @@ from datetime import datetime, timezone
 SOCKET_TIMEOUT = 6
 HTTP_TIMEOUT = 6
 
+# Fallback: eficiencia W/TH por familia de modelo. So e usado quando a maquina
+# NAO reporta consumo real (ex.: S19 XP em imersao).
 EFFICIENCY_WTH = {
     "S21 PRO": 15.0, "S21": 17.5, "T21": 19.0,
     "S19 XP": 21.5, "S19J PRO": 30.5, "S19J": 33.0,
     "S19 PRO": 29.5, "S19": 34.5, "T19": 38.0,
     "M60": 20.0, "M50": 26.0, "M30": 38.0, "M31": 42.0, "M32": 45.0,
-    "1566": 18.5, "1466": 21.0, "1366": 25.0, "1246": 38.0,
-    "L7": 0.0,
+    "1566": 18.5, "1466": 21.0, "1366": 25.0, "1246": 38.0,  # Avalon (familia)
+    "L7": 0.0,  # Scrypt: unidade diferente, nao estimar
 }
 GENERIC_WTH = 30.0
+
+# Tensao de LINHA (V) usada para derivar a corrente de entrada quando o
+# consumo e conhecido mas a corrente nao e reportada pelo firmware.
 GRID_VOLTAGE = 230.0
 
 
@@ -131,7 +56,10 @@ def _first(d, *keys, default=None):
     return default
 
 
+# =================== TRANSPORTE ===================
+
 async def api_call(ip, port, command, timeout=SOCKET_TIMEOUT):
+    """API socket cgminer/bmminer/btminer (porta 4028)."""
     reader, writer = await asyncio.wait_for(
         asyncio.open_connection(ip, port), timeout=timeout
     )
@@ -170,7 +98,10 @@ async def http_get_json(url, timeout=HTTP_TIMEOUT):
     return await asyncio.to_thread(_http_get_json_sync, url, timeout)
 
 
+# =================== HELPERS DE PARSING ===================
+
 def _get_list(resp, key):
+    """Pega uma lista (SUMMARY/POOLS/STATS) lidando com o embrulho 'Msg' do BixBit."""
     if isinstance(resp.get(key), list):
         return resp[key]
     msg = resp.get("Msg")
@@ -187,6 +118,7 @@ def _summary0(resp):
 
 
 def _hashrate_ths(d, suffix):
+    """Extrai TH/s de qualquer unidade: 'THS/GHS/MHS/KHS <suffix>'."""
     for unit, div in (("THS", 1.0), ("GHS", 1e3), ("MHS", 1e6), ("KHS", 1e9)):
         k = f"{unit} {suffix}"
         if k in d:
@@ -197,14 +129,15 @@ def _hashrate_ths(d, suffix):
 
 
 def _normalize_hashrate(v):
+    """Detecta a unidade pela magnitude. Retorna sempre TH/s."""
     v = _f(v)
     if v is None or v <= 0:
         return None
-    if v > 1e6:
+    if v > 1e6:            # MH/s
         return round(v / 1e6, 3)
-    if v > 1e3:
+    if v > 1e3:            # GH/s
         return round(v / 1e3, 3)
-    return round(v, 3)
+    return round(v, 3)     # ja em TH/s
 
 
 def _pick_hashrate(d, keys):
@@ -217,6 +150,7 @@ def _pick_hashrate(d, keys):
 
 
 def _ws_board_hashrate_sum(devs_resp, keys):
+    """Soma o hashrate por hashboard (via 'devs'), em TH/s."""
     devs = _get_list(devs_resp or {}, "DEVS")
     if not devs:
         return None
@@ -301,6 +235,8 @@ def _apply_pool_socket(rec, pools_resp):
         rec["worker"] = chosen.get("User")
 
 
+# =================== PARSERS ===================
+
 def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None):
     s = _summary0(summary_resp)
     rec = _base_record(name, ip, port, "whatsminer")
@@ -347,6 +283,8 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None):
     if pr and pr > 0:
         rec["efficiency_jth"] = round(pr, 2)
 
+    # M32 (especifico): consumo = tensao x corrente da saida do PSU + 100W
+    # fixos da controladora. Sobrepoe o "Power Realtime".
     if "M32" in (rec.get("model") or "").upper():
         vout = _f(_first(s, "PSU Vout"))
         iout = _f(_first(s, "PSU Iout"))
@@ -479,6 +417,8 @@ def parse_avalon(name, ip, port, summary_resp, stats_resp, pools_resp):
     return _finalize(rec)
 
 
+# =================== DISPATCH ===================
+
 async def poll_miner(miner):
     name = miner.get("name") or miner["ip"]
     ip = miner["ip"]
@@ -515,55 +455,8 @@ async def poll_miner(miner):
                 pass
             return parse_avalon(name, ip, port, summary, stats, pools)
 
+        # tipo desconhecido: tenta socket generico (cgminer padrao)
         summary = await api_call(ip, port, "summary")
         return parse_whatsminer(name, ip, port, summary, {})
     except Exception as e:
         return _offline_record(name, ip, port, mtype, e)
-'@ | Set-Content -Path (Join-Path $installDir "miners.py") -Encoding utf8
-
-@'
-httpx>=0.27,<1
-'@ | Set-Content -Path (Join-Path $installDir "requirements.txt") -Encoding utf8
-
-$existingMiners = @()
-$configPath = Join-Path $installDir "config.json"
-if (Test-Path $configPath) {
-  try { $existingMiners = (Get-Content $configPath -Raw | ConvertFrom-Json).miners } catch {}
-}
-
-$config = [ordered]@{
-  api_url               = $ApiUrl
-  agent_token            = $AgentToken
-  poll_interval_seconds  = $PollIntervalSeconds
-  miners                 = if ($existingMiners) { $existingMiners } else { @() }
-}
-$config | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding utf8
-
-Write-Host "Instalando dependencias Python (httpx)..."
-& python -m pip install --quiet --user -r (Join-Path $installDir "requirements.txt")
-
-$pythonw = Get-Command pythonw -ErrorAction SilentlyContinue
-$exe = if ($pythonw) { $pythonw.Source } else { $python.Source }
-$serviceArgs = "`"$(Join-Path $installDir 'service.py')`""
-
-$action = New-ScheduledTaskAction -Execute $exe -Argument $serviceArgs -WorkingDirectory $installDir
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -Hidden
-
-Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings `
-  -Description "Coletor ASIC Monitor Cloud - envia metricas das ASICs da rede local para a nuvem." | Out-Null
-
-$env:ASIC_MONITOR_CONFIG = $configPath
-Start-ScheduledTask -TaskName $taskName
-
-Write-Host ""
-Write-Host "Instalado com sucesso." -ForegroundColor Green
-Write-Host "O coletor inicia automaticamente a cada login do Windows e ja foi iniciado agora."
-Write-Host "Configuracao: $configPath"
-Write-Host "Para monitorar ASICs, edite o campo 'miners' desse arquivo:"
-Write-Host '  { "name": "ASIC-01", "ip": "192.168.1.101", "port": 4028, "type": "antminer" }'
-Write-Host "O campo 'type' aceita: antminer, whatsminer ou avalon."
-Write-Host "Depois de editar, reinicie a tarefa:"
-Write-Host "  Stop-ScheduledTask -TaskName $taskName; Start-ScheduledTask -TaskName $taskName"

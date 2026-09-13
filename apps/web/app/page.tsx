@@ -1,10 +1,12 @@
+import Link from "next/link";
+
 export default function Home() {
   return <main className="shell">
     <nav className="nav">
       <div className="brand"><span className="brand-mark">A</span><span>ASIC <b>Monitor</b></span></div>
       <div className="hero-actions">
-        <a className="button secondary" href="/sign-in">Entrar</a>
-        <a className="button" href="/sign-in?mode=signup">Criar conta</a>
+        <Link className="button secondary" href="/sign-in">Entrar</Link>
+        <Link className="button" href="/sign-in?mode=signup">Criar conta</Link>
       </div>
     </nav>
     <section className="hero">
@@ -12,8 +14,8 @@ export default function Home() {
       <h1>Monitoramento de ASICs para fazendas que querem escalar.</h1>
       <p>Um coletor sem interface roda no PC da sua fazenda, lê suas máquinas na rede local e envia os dados para a nuvem. Você acompanha hash rate, temperatura e disponibilidade de qualquer dispositivo, com licença por máquina ativa.</p>
       <div className="hero-actions">
-        <a className="button" href="/sign-in?mode=signup">Começar agora</a>
-        <a className="button secondary" href="/farms">Baixar o coletor</a>
+        <Link className="button" href="/sign-in?mode=signup">Começar agora</Link>
+        <Link className="button secondary" href="/farms">Baixar o coletor</Link>
       </div>
     </section>
     <section className="grid">
@@ -34,7 +36,7 @@ export default function Home() {
     <section className="landing-section">
       <h2>Cobrança transparente</h2>
       <p>US$ 3,00 por máquina ativa/mês, com desconto progressivo a partir da 15ª máquina. Pagamento em USDT na rede Solana, com confirmação automática na blockchain — sem depender de exchange.</p>
-      <a className="text-link" href="/sign-in?mode=signup">Ver a calculadora de licença →</a>
+      <Link className="text-link" href="/sign-in?mode=signup">Ver a calculadora de licença →</Link>
     </section>
     <footer className="footer">
       <span>ASIC Monitor Cloud</span>
