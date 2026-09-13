@@ -22,9 +22,9 @@ As rotas `/dashboard`, `/farms`, `/billing` e `/admin` exigem uma sessão válid
 | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | URL canônica do painel após o primeiro deploy |
 | `AGENT_TOKEN_PEPPER` | Segredo usado para gerar hashes dos tokens dos agentes |
-| `SOLANA_RPC_URL` | Endpoint RPC para validar transferências USDT |
-| `SOLANA_USDT_MINT` | Endereço oficial do mint USDT na rede Solana escolhida |
-| `BILLING_WALLET_PUBLIC_KEY` | Endereço público que recebe USDT |
+| `SOLANA_RPC_URL` | Endpoint RPC para o monitor on-chain validar transferências USDT (ainda não implementado) |
+| `NEXT_PUBLIC_SOLANA_USDT_MINT` | Endereço do mint do USDT na rede Solana. Usado no QR code de pagamento (Solana Pay), por isso é público — não é segredo. |
+| `NEXT_PUBLIC_BILLING_WALLET_PUBLIC_KEY` | Endereço público que recebe USDT. Público por natureza (é para onde o cliente paga), exposto no navegador para montar o QR code da fatura. |
 
 Use valores diferentes em Development, Preview e Production quando fizer sentido. Os valores sensíveis ficam somente na Vercel.
 
