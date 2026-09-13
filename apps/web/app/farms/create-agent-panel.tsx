@@ -14,7 +14,7 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
 
   const apiUrl = typeof window !== "undefined" ? `${window.location.origin}/api/agent/metrics` : "/api/agent/metrics";
   const command = token
-    ? `powershell -ExecutionPolicy Bypass -File .\\install-asic-monitor-agent.ps1 -ApiUrl "${apiUrl}" -AgentToken "${token}"`
+    ? `ASICMonitorAgent.exe --api-url "${apiUrl}" --agent-token "${token}"`
     : "";
 
   async function handleCreate() {
@@ -56,9 +56,10 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
       <div className="token-reveal">
         <p className="form-message warning"><b>Copie agora — este token não será mostrado novamente.</b></p>
         <code className="token-code">{token}</code>
-        <p className="muted">Rode este comando na fazenda, na pasta onde salvou o instalador:</p>
+        <p className="muted">Abra o Prompt de Comando (cmd) na pasta onde salvou o executável e rode:</p>
         <code className="cmd-block">{command}</code>
         <button className="button secondary" type="button" onClick={copyCommand}>{copied ? "Copiado!" : "Copiar comando"}</button>
+        <small className="muted">O Windows pode avisar &quot;Editor desconhecido&quot; (SmartScreen) por o executável não ser assinado — clique em &quot;Mais informações&quot; → &quot;Executar assim mesmo&quot;.</small>
       </div>
     ) : (
       <div className="inline-form">
@@ -69,6 +70,6 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
       </div>
     )}
     {error && <p className="form-message error">{error}</p>}
-    <a className="text-link" href="/downloads/install-asic-monitor-agent.ps1" download>Baixar instalador (.ps1)</a>
+    <a className="text-link" href="/downloads/ASICMonitorAgent.exe" download>Baixar coletor (.exe)</a>
   </section>;
 }
