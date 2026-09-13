@@ -2,9 +2,12 @@ import Link from "next/link";
 import { PageHeader, Shell } from "../components";
 import { getOrganizationId } from "../../lib/org-data";
 import { monthlyPriceCents } from "../../lib/pricing";
+import { currentTimeMs } from "../../lib/time";
+import { LiveRefresh } from "../farms/live-refresh";
 
 type Miner = { id: string; farm_id: string; name: string };
 type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; observed_at: string };
+const FRESH_METRIC_MS = 90_000;
 
 function formatHashrate(ths: number) {
   if (ths >= 1000) return `${(ths / 1000).toFixed(2)} PH/s`;
@@ -41,21 +44,27 @@ export default async function DashboardPage() {
     if (!latestByMiner.has(m.miner_id)) latestByMiner.set(m.miner_id, m);
   }
 
+  const now = currentTimeMs();
+  const isMinerOnline = (minerId: string) => {
+    const metric = latestByMiner.get(minerId);
+    return Boolean(metric?.online && now - new Date(metric.observed_at).getTime() <= FRESH_METRIC_MS);
+  };
+
   const activeMachines = minerList.length;
-  const onlineMachines = minerList.filter((m) => latestByMiner.get(m.id)?.online).length;
+  const onlineMachines = minerList.filter((m) => isMinerOnline(m.id)).length;
   const availabilityPct = activeMachines > 0 ? Math.round((onlineMachines / activeMachines) * 1000) / 10 : 0;
-  const totalHashrateThs = minerList.reduce((sum, m) => sum + (latestByMiner.get(m.id)?.hashrate_ths ?? 0), 0);
+  const totalHashrateThs = minerList.reduce((sum, m) => sum + (isMinerOnline(m.id) ? latestByMiner.get(m.id)?.hashrate_ths ?? 0 : 0), 0);
   const estimatedMonthlyUsd = monthlyPriceCents(activeMachines) / 100;
 
   const farmCards = farmList.map((farm) => {
     const farmMiners = minerList.filter((m) => m.farm_id === farm.id);
-    const online = farmMiners.filter((m) => latestByMiner.get(m.id)?.online).length;
-    const hashrateThs = farmMiners.reduce((sum, m) => sum + (latestByMiner.get(m.id)?.hashrate_ths ?? 0), 0);
+    const online = farmMiners.filter((m) => isMinerOnline(m.id)).length;
+    const hashrateThs = farmMiners.reduce((sum, m) => sum + (isMinerOnline(m.id) ? latestByMiner.get(m.id)?.hashrate_ths ?? 0 : 0), 0);
     return { ...farm, online, total: farmMiners.length, hashrateThs };
   });
 
   const attention = minerList
-    .filter((m) => latestByMiner.get(m.id)?.online === false)
+    .filter((m) => !isMinerOnline(m.id))
     .slice(0, 4);
 
   // Série real: agrupa leituras pelo mesmo observed_at (um lote = um ciclo do agente)
@@ -82,7 +91,7 @@ export default async function DashboardPage() {
       .join(" ");
   })();
 
-  return <Shell><PageHeader title="Visão geral" description="Atualizado agora · dados do seu agente conectado." />
+  return <Shell><PageHeader title="Visão geral" description="Dados recebidos dos agentes conectados." action={<LiveRefresh />} />
     <section className="metrics-grid">
       <article className="card"><p className="eyebrow">MÁQUINAS ONLINE</p><div className="metric">{onlineMachines}<span>/{activeMachines}</span></div><p className="positive">● {availabilityPct}% disponíveis</p></article>
       <article className="card"><p className="eyebrow">HASH RATE TOTAL</p><div className="metric">{formatHashrate(totalHashrateThs)}</div><p className="muted">{farmList.length} fazenda{farmList.length === 1 ? "" : "s"}</p></article>
