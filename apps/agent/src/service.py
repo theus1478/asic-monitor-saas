@@ -92,7 +92,11 @@ def _ask_agent_token() -> str:
 def load_or_create_config(args: argparse.Namespace) -> dict:
     path = config_path()
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        url = str(existing.get("api_url", ""))
+        if url.startswith("http://") or url.startswith("https://"):
+            return existing
+        print(f"O config.json existente tem uma URL invalida ({url!r}). Vou pedir os dados de novo.")
 
     print("== Coletor ASIC Monitor Cloud ==")
     print("Primeira execucao: preciso da URL da API e do token do agente.")
