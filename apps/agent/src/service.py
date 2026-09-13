@@ -58,6 +58,37 @@ def create_config(api_url: str, agent_token: str, poll_interval_seconds: int) ->
     return config
 
 
+def _clean(value: str) -> str:
+    """Remove aspas e espacos que sobram de um copia-e-cola."""
+    return value.strip().strip('"').strip("'").strip()
+
+
+def _ask_api_url() -> str:
+    while True:
+        raw = input("URL da API (ex: https://seu-dominio.vercel.app/api/agent/metrics): ")
+        value = _clean(raw)
+        if "--api-url" in value or "--agent-token" in value or value.endswith(".exe"):
+            print("Isso parece o comando inteiro, nao so a URL. Cole apenas o endereco (comeca com https://).")
+            continue
+        if not value.startswith("http://") and not value.startswith("https://"):
+            print("A URL precisa comecar com http:// ou https://. Tente novamente.")
+            continue
+        return value
+
+
+def _ask_agent_token() -> str:
+    while True:
+        raw = input("Token do agente (gerado no painel, em Fazendas): ")
+        value = _clean(raw)
+        if "--" in value or " " in value:
+            print("Isso nao parece um token valido (token nao tem espacos nem --). Cole apenas o token.")
+            continue
+        if not value:
+            print("O token nao pode ficar vazio.")
+            continue
+        return value
+
+
 def load_or_create_config(args: argparse.Namespace) -> dict:
     path = config_path()
     if path.exists():
@@ -65,8 +96,8 @@ def load_or_create_config(args: argparse.Namespace) -> dict:
 
     print("== Coletor ASIC Monitor Cloud ==")
     print("Primeira execucao: preciso da URL da API e do token do agente.")
-    api_url = args.api_url or input("URL da API (ex: https://seu-dominio.vercel.app/api/agent/metrics): ").strip()
-    agent_token = args.agent_token or input("Token do agente (gerado no painel, em Fazendas): ").strip()
+    api_url = _clean(args.api_url) if args.api_url else _ask_api_url()
+    agent_token = _clean(args.agent_token) if args.agent_token else _ask_agent_token()
     if not api_url or not agent_token:
         print("URL da API e token do agente sao obrigatorios.")
         sys.exit(1)
