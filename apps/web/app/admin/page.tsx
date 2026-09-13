@@ -1,9 +1,77 @@
 import { PageHeader, Shell } from "../components";
-import { clients } from "../../lib/demo-data";
+import { requirePlatformAdmin } from "../../lib/org-data";
+import { createServiceClient } from "../../lib/supabase/service";
+import { monthlyPriceCents } from "../../lib/pricing";
 
-export default function AdminPage() {
-  return <Shell admin><PageHeader title="Gestão da plataforma" description="Acompanhe clientes, licenças e pagamentos em um só lugar." action={<button className="button">Novo cliente</button>} />
-    <section className="metrics-grid"><article className="card"><p className="eyebrow">CLIENTES ATIVOS</p><div className="metric">24</div><p className="positive">+3 neste mês</p></article><article className="card"><p className="eyebrow">MÁQUINAS LICENCIADAS</p><div className="metric">486</div><p className="muted">73% da capacidade contratada</p></article><article className="card"><p className="eyebrow">MRR ESTIMADO</p><div className="metric">US$ 1.284</div><p className="muted">equivalente em USDT</p></article><article className="card"><p className="eyebrow">PAGAMENTOS PENDENTES</p><div className="metric">3</div><p className="warning-text">US$ 186 em aberto</p></article></section>
-    <section id="clientes" className="card table-card"><div className="section-title"><div><h2>Clientes</h2><p>Contas e situação das assinaturas</p></div><button className="button secondary">Exportar</button></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Máquinas</th><th>Assinatura</th><th>Renovação</th><th /></tr></thead><tbody>{clients.map(client => <tr key={client.email}><td><b>{client.name}</b><small>{client.email}</small></td><td>{client.machines}</td><td><span className={`badge ${client.subscription === "Ativa" ? "success" : client.subscription === "Pendente" ? "warning" : "neutral"}`}>{client.subscription}</span></td><td>{client.renewal}</td><td><button className="button secondary compact">Abrir</button></td></tr>)}</tbody></table></div></section>
+export default async function AdminPage() {
+  await requirePlatformAdmin();
+  const supabase = createServiceClient();
+
+  const { data: organizations } = await supabase
+    .from("organizations")
+    .select("id, name, created_at")
+    .order("created_at", { ascending: false });
+  const orgList = organizations ?? [];
+  const orgIds = orgList.map((o) => o.id);
+
+  const { data: farms } = orgIds.length
+    ? await supabase.from("farms").select("id, organization_id").in("organization_id", orgIds)
+    : { data: [] as { id: string; organization_id: string }[] };
+  const farmList = farms ?? [];
+  const farmIds = farmList.map((f) => f.id);
+  const farmToOrg = new Map(farmList.map((f) => [f.id, f.organization_id]));
+
+  const { data: miners } = farmIds.length
+    ? await supabase.from("miners").select("id, farm_id").in("farm_id", farmIds)
+    : { data: [] as { id: string; farm_id: string }[] };
+  const minerList = miners ?? [];
+
+  const { data: agents } = farmIds.length
+    ? await supabase.from("agents").select("id, farm_id, status").in("farm_id", farmIds)
+    : { data: [] as { id: string; farm_id: string; status: string }[] };
+  const agentList = agents ?? [];
+
+  const minersByOrg = new Map<string, number>();
+  for (const m of minerList) {
+    const orgId = farmToOrg.get(m.farm_id);
+    if (orgId) minersByOrg.set(orgId, (minersByOrg.get(orgId) ?? 0) + 1);
+  }
+
+  const onlineAgents = agentList.filter((a) => a.status === "online").length;
+  const totalMrrCents = orgList.reduce((sum, o) => sum + monthlyPriceCents(minersByOrg.get(o.id) ?? 0), 0);
+
+  return <Shell admin>
+    <PageHeader title="Gestão da plataforma" description="Acompanhe clientes, máquinas e agentes de toda a operação." />
+    <section className="metrics-grid">
+      <article className="card"><p className="eyebrow">CLIENTES</p><div className="metric">{orgList.length}</div><p className="muted">organizações cadastradas</p></article>
+      <article className="card"><p className="eyebrow">MÁQUINAS CADASTRADAS</p><div className="metric">{minerList.length}</div><p className="muted">em todas as contas</p></article>
+      <article className="card"><p className="eyebrow">AGENTES ONLINE</p><div className="metric">{onlineAgents}<span>/{agentList.length}</span></div><p className="muted">coletores ativos agora</p></article>
+      <article className="card"><p className="eyebrow">MRR ESTIMADO</p><div className="metric">USDT {(totalMrrCents / 100).toFixed(2)}</div><p className="muted">pela régua de preço atual</p></article>
+    </section>
+    <section id="clientes" className="card table-card">
+      <div className="section-title"><div><h2>Clientes</h2><p>Organizações e máquinas cadastradas</p></div></div>
+      {orgList.length === 0
+        ? <p className="muted">Nenhuma organização cadastrada ainda.</p>
+        : <div className="table-wrap">
+            <table>
+              <thead><tr><th>Organização</th><th>Máquinas</th><th>Estimativa mensal</th><th>Criada em</th></tr></thead>
+              <tbody>
+                {orgList.map((org) => {
+                  const machines = minersByOrg.get(org.id) ?? 0;
+                  return <tr key={org.id}>
+                    <td><b>{org.name}</b></td>
+                    <td>{machines}</td>
+                    <td>USDT {(monthlyPriceCents(machines) / 100).toFixed(2)}</td>
+                    <td>{new Date(org.created_at).toLocaleDateString("pt-BR")}</td>
+                  </tr>;
+                })}
+              </tbody>
+            </table>
+          </div>}
+    </section>
+    <section id="licencas" className="card">
+      <h2>Licenciamento</h2>
+      <p className="muted">Cada máquina cadastrada conta para a licença da organização. A régua de desconto progressivo é a mesma usada na calculadora de cobrança do cliente.</p>
+    </section>
   </Shell>;
 }

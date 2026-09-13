@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { createClient } from "./supabase/server";
 
 /** Organização do usuário logado, via a primeira membership encontrada. */
@@ -14,4 +15,20 @@ export async function getOrganizationId() {
     .maybeSingle();
 
   return { supabase, organizationId: (membership?.organization_id as string | undefined) ?? null };
+}
+
+/** Garante que o usuário logado é platform_admin; caso contrário, manda para o dashboard do cliente. */
+export async function requirePlatformAdmin() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/sign-in");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("platform_admin")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (!profile?.platform_admin) redirect("/dashboard");
+  return { userId: user.id };
 }
