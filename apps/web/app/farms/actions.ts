@@ -30,14 +30,18 @@ export async function addFarm(formData: FormData) {
   revalidatePath("/farms");
 }
 
+const MINER_TYPES = new Set(["antminer", "whatsminer", "avalon"]);
+
 export async function addMiner(farmId: string, formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const ip = String(formData.get("ip") ?? "").trim();
   const port = Number(formData.get("port") ?? 4028) || 4028;
+  const typeRaw = String(formData.get("type") ?? "antminer").trim().toLowerCase();
+  const type = MINER_TYPES.has(typeRaw) ? typeRaw : "antminer";
   if (!name || !ip) return;
 
   const { supabase } = await requireOrgId();
-  await supabase.from("miners").insert({ farm_id: farmId, name, ip, protocol_port: port });
+  await supabase.from("miners").insert({ farm_id: farmId, name, ip, protocol_port: port, type });
   revalidatePath(`/farms/${farmId}`);
 }
 

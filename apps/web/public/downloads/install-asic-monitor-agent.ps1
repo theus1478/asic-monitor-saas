@@ -58,14 +58,37 @@ def load_config() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def config_url_from_api_url(api_url: str) -> str:
+    if api_url.endswith("/metrics"):
+        return api_url[: -len("/metrics")] + "/config"
+    return api_url.rstrip("/") + "/config"
+
+
+async def fetch_remote_miners(client, config_url, headers):
+    try:
+        response = await client.get(config_url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("miners")
+    except httpx.HTTPError as error:
+        print(f"Falha ao buscar configuracao da nuvem: {error}", flush=True)
+        return None
+
+
 async def run() -> None:
     config = load_config()
     headers = {"Authorization": f"Bearer {config['agent_token']}"}
     interval = max(10, int(config.get("poll_interval_seconds", 30)))
+    config_url = config_url_from_api_url(config["api_url"])
+    known_miners = config.get("miners", [])
+
     async with httpx.AsyncClient(timeout=15) as client:
         while True:
-            miners = config.get("miners", [])
-            metrics = await asyncio.gather(*(poll_miner(m) for m in miners))
+            remote_miners = await fetch_remote_miners(client, config_url, headers)
+            if remote_miners is not None:
+                known_miners = remote_miners
+
+            metrics = await asyncio.gather(*(poll_miner(m) for m in known_miners))
             payload = {"observed_at": datetime.now(timezone.utc).isoformat(), "metrics": list(metrics)}
             try:
                 response = await client.post(config["api_url"], headers=headers, json=payload)
@@ -562,8 +585,5 @@ Write-Host ""
 Write-Host "Instalado com sucesso." -ForegroundColor Green
 Write-Host "O coletor inicia automaticamente a cada login do Windows e ja foi iniciado agora."
 Write-Host "Configuracao: $configPath"
-Write-Host "Para monitorar ASICs, edite o campo 'miners' desse arquivo:"
-Write-Host '  { "name": "ASIC-01", "ip": "192.168.1.101", "port": 4028, "type": "antminer" }'
-Write-Host "O campo 'type' aceita: antminer, whatsminer ou avalon."
-Write-Host "Depois de editar, reinicie a tarefa:"
-Write-Host "  Stop-ScheduledTask -TaskName $taskName; Start-ScheduledTask -TaskName $taskName"
+Write-Host "Cadastre as ASICs direto no painel (Fazendas > Adicionar maquina) — o coletor busca a lista"
+Write-Host "sozinho na nuvem a cada ciclo, nao precisa editar este arquivo."

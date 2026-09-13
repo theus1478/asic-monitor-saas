@@ -13,7 +13,7 @@ export default async function FarmDetailPage({ params }: { params: Promise<{ id:
 
   const { data: miners } = await supabase
     .from("miners")
-    .select("id, name, ip, protocol_port, enabled")
+    .select("id, name, ip, protocol_port, type, enabled")
     .eq("farm_id", id)
     .order("created_at");
 
@@ -34,16 +34,22 @@ export default async function FarmDetailPage({ params }: { params: Promise<{ id:
         ? <p className="muted">Nenhuma máquina cadastrada ainda.</p>
         : <div className="table-wrap">
             <table>
-              <thead><tr><th>Nome</th><th>IP</th><th>Porta</th></tr></thead>
-              <tbody>{minerList.map((m) => <tr key={m.id}><td>{m.name}</td><td>{m.ip}</td><td>{m.protocol_port}</td></tr>)}</tbody>
+              <thead><tr><th>Nome</th><th>IP</th><th>Porta</th><th>Fabricante</th></tr></thead>
+              <tbody>{minerList.map((m) => <tr key={m.id}><td>{m.name}</td><td>{m.ip}</td><td>{m.protocol_port}</td><td>{m.type}</td></tr>)}</tbody>
             </table>
           </div>}
       <form action={addMinerForFarm} className="inline-form">
         <input name="name" placeholder="Nome (ex: ASIC-01)" required />
         <input name="ip" placeholder="IP local (ex: 192.168.1.101)" required />
         <input name="port" placeholder="Porta" defaultValue={4028} />
+        <select name="type" defaultValue="antminer">
+          <option value="antminer">Antminer</option>
+          <option value="whatsminer">Whatsminer</option>
+          <option value="avalon">Avalon</option>
+        </select>
         <button className="button secondary" type="submit">Adicionar máquina</button>
       </form>
+      <small className="muted">O coletor busca essa lista automaticamente da nuvem — não precisa editar o config.json local.</small>
     </section>
     <CreateAgentPanel farmId={farm.id} agents={agents ?? []} />
   </Shell>;
