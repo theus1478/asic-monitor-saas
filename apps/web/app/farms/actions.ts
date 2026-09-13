@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "../../lib/supabase/server";
 import { generateAgentToken, hashAgentToken } from "../../lib/agent-token";
 
@@ -40,9 +41,25 @@ export async function addMiner(farmId: string, formData: FormData) {
   const type = MINER_TYPES.has(typeRaw) ? typeRaw : "antminer";
   if (!name || !ip) return;
 
-  const { supabase } = await requireOrgId();
+  const { supabase, organizationId } = await requireOrgId();
+  const [{ data: farm }, { data: batches }, { count }] = await Promise.all([
+    supabase.from("farms").select("id").eq("id", farmId).eq("organization_id", organizationId).maybeSingle(),
+    supabase.from("license_batches").select("quantity").eq("organization_id", organizationId).eq("status", "active").gt("expires_at", new Date().toISOString()),
+    supabase.from("miners").select("id, farms!inner(organization_id)", { count: "exact", head: true }).eq("farms.organization_id", organizationId),
+  ]);
+  if (!farm) throw new Error("Fazenda não encontrada.");
+  const licensed = (batches ?? []).reduce((total, batch) => total + Number(batch.quantity), 0);
+  if ((count ?? 0) >= licensed) redirect(`/billing?error=${encodeURIComponent("Compre uma licença antes de adicionar outra máquina.")}`);
   await supabase.from("miners").insert({ farm_id: farmId, name, ip, protocol_port: port, type });
   revalidatePath(`/farms/${farmId}`);
+}
+
+export async function deleteFarm(farmId: string) {
+  const { supabase, organizationId } = await requireOrgId();
+  const { error } = await supabase.from("farms").delete().eq("id", farmId).eq("organization_id", organizationId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/farms");
+  revalidatePath("/dashboard");
 }
 
 export async function createAgent(farmId: string, name: string) {

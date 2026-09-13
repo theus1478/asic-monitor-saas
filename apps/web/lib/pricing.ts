@@ -42,7 +42,7 @@ export function buildSolanaPayUri(amountUsdt: number, reference: string) {
     "spl-token": SOLANA_USDT_MINT,
     label: "ASIC Monitor Cloud",
     message: `Assinatura mensal — ref. ${reference}`,
-    reference,
+    memo: reference,
   });
   return `solana:${BILLING_WALLET_PUBLIC_KEY}?${params.toString()}`;
 }

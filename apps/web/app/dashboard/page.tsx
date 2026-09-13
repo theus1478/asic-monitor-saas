@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { PageHeader, Shell } from "../components";
 import { getOrganizationId } from "../../lib/org-data";
-import { monthlyPriceCents } from "../../lib/pricing";
 import { currentTimeMs } from "../../lib/time";
 import { LiveRefresh } from "../farms/live-refresh";
 
 type Miner = { id: string; farm_id: string; name: string };
-type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; observed_at: string };
+type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; power_w: number | null; observed_at: string };
 const FRESH_METRIC_MS = 90_000;
 
 function formatHashrate(ths: number) {
@@ -32,10 +31,11 @@ export default async function DashboardPage() {
   const { data: recentMetrics } = minerIds.length
     ? await supabase
         .from("miner_metrics")
-        .select("miner_id, online, hashrate_ths, observed_at")
+        .select("miner_id, online, hashrate_ths, power_w, observed_at")
         .in("miner_id", minerIds)
+        .gte("observed_at", new Date(currentTimeMs() - 30 * 86400_000).toISOString())
         .order("observed_at", { ascending: false })
-        .limit(500)
+        .limit(10000)
     : { data: [] as Metric[] };
   const metrics = recentMetrics ?? [];
 
@@ -54,7 +54,19 @@ export default async function DashboardPage() {
   const onlineMachines = minerList.filter((m) => isMinerOnline(m.id)).length;
   const availabilityPct = activeMachines > 0 ? Math.round((onlineMachines / activeMachines) * 1000) / 10 : 0;
   const totalHashrateThs = minerList.reduce((sum, m) => sum + (isMinerOnline(m.id) ? latestByMiner.get(m.id)?.hashrate_ths ?? 0 : 0), 0);
-  const estimatedMonthlyUsd = monthlyPriceCents(activeMachines) / 100;
+  const energyByMiner = new Map<string, Metric[]>();
+  for (const metric of metrics) {
+    if (metric.online && metric.power_w != null) energyByMiner.set(metric.miner_id, [...(energyByMiner.get(metric.miner_id) ?? []), metric]);
+  }
+  let recordedKwh = 0;
+  for (const minerMetrics of energyByMiner.values()) {
+    minerMetrics.sort((a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime());
+    for (let index = 1; index < minerMetrics.length; index += 1) {
+      const previous = minerMetrics[index - 1], current = minerMetrics[index];
+      const hours = Math.min(300_000, new Date(current.observed_at).getTime() - new Date(previous.observed_at).getTime()) / 3_600_000;
+      recordedKwh += (((previous.power_w ?? 0) + (current.power_w ?? 0)) / 2 / 1000) * Math.max(0, hours);
+    }
+  }
 
   const farmCards = farmList.map((farm) => {
     const farmMiners = minerList.filter((m) => m.farm_id === farm.id);
@@ -64,7 +76,7 @@ export default async function DashboardPage() {
   });
 
   const attention = minerList
-    .filter((m) => !isMinerOnline(m.id))
+    .filter((m) => !isMinerOnline(m.id) || (latestByMiner.get(m.id)?.hashrate_ths ?? 0) < 10)
     .slice(0, 4);
 
   // Série real: agrupa leituras pelo mesmo observed_at (um lote = um ciclo do agente)
@@ -96,7 +108,7 @@ export default async function DashboardPage() {
       <article className="card"><p className="eyebrow">MÁQUINAS ONLINE</p><div className="metric">{onlineMachines}<span>/{activeMachines}</span></div><p className="positive">● {availabilityPct}% disponíveis</p></article>
       <article className="card"><p className="eyebrow">HASH RATE TOTAL</p><div className="metric">{formatHashrate(totalHashrateThs)}</div><p className="muted">{farmList.length} fazenda{farmList.length === 1 ? "" : "s"}</p></article>
       <article className="card"><p className="eyebrow">MÁQUINAS CADASTRADAS</p><div className="metric">{activeMachines}</div><p className="muted">contam para a licença</p></article>
-      <article className="card"><p className="eyebrow">ESTIMATIVA MENSAL</p><div className="metric">USDT {estimatedMonthlyUsd.toFixed(2)}</div><p className="warning-text"><Link href="/billing" className="text-link">ver fatura</Link></p></article>
+      <article className="card"><p className="eyebrow">CONSUMO REGISTRADO · 30 DIAS</p><div className="metric">{recordedKwh.toFixed(2)}<span> kWh</span></div><p className="muted">soma de todas as fazendas</p></article>
     </section>
     <section className="content-grid">
       <article className="card chart">
@@ -108,8 +120,8 @@ export default async function DashboardPage() {
       <article className="card alerts">
         <h2>Precisam de atenção</h2>
         {attention.length === 0
-          ? <p className="muted">Nenhuma máquina offline no momento.</p>
-          : attention.map((m) => <div className="alert-row" key={m.id}><span className="status-dot off" />{m.name} <small>Sem resposta na última leitura</small></div>)}
+          ? <p className="muted">Todas as máquinas estão online e acima de 10 TH/s.</p>
+          : attention.map((m) => { const metric = latestByMiner.get(m.id); const lowHash = isMinerOnline(m.id) && (metric?.hashrate_ths ?? 0) < 10; return <div className="alert-row" key={m.id}><span className={`status-dot ${lowHash ? "warn" : "off"}`} />{m.name}<small>{lowHash ? `Hashrate baixo: ${(metric?.hashrate_ths ?? 0).toFixed(2)} TH/s` : "Offline ou sem resposta recente"}</small></div>; })}
         <Link href="/farms" className="text-link">Ver todas as máquinas</Link>
       </article>
     </section>
