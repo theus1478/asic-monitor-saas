@@ -1,6 +1,12 @@
 node_modules/
 .next/
 .npm-cache/
+.agent-deps/
+.pip-tmp/
+.exe-tmp/
+apps/agent/src/build/
+apps/agent/src/dist/
+apps/agent/src/*.spec
 .env.local
 .env*.local
 *.pyc

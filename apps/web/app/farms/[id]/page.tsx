@@ -4,6 +4,7 @@ import { currentTimeMs } from "../../../lib/time";
 import { addMiner } from "../actions";
 import { CreateAgentPanel } from "../create-agent-panel";
 import { LegacyMonitor, type MonitorMiner } from "./legacy-monitor";
+import type { PoolCommandSummary } from "./pool-control";
 
 type Miner = { id: string; name: string; ip: string; protocol_port: number; type: string; enabled: boolean };
 type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string; payload: Record<string, unknown> | null };
@@ -14,9 +15,10 @@ export default async function FarmDetailPage({ params }: { params: Promise<{ id:
   const supabase = await createClient();
   const { data: farm } = await supabase.from("farms").select("id, name, timezone").eq("id", id).maybeSingle();
   if (!farm) notFound();
-  const [{ data: miners }, { data: agents }] = await Promise.all([
+  const [{ data: miners }, { data: agents }, { data: poolCommands }] = await Promise.all([
     supabase.from("miners").select("id, name, ip, protocol_port, type, enabled").eq("farm_id", id).order("created_at"),
     supabase.from("agents").select("id, name, status, last_seen_at").eq("farm_id", id).order("id"),
+    supabase.from("pool_commands").select("id, pool_url, target_count, status, created_at, result").eq("farm_id", id).order("created_at", { ascending: false }).limit(10),
   ]);
   const minerList = (miners ?? []) as Miner[];
   const ids = minerList.map((miner) => miner.id);
@@ -39,5 +41,5 @@ export default async function FarmDetailPage({ params }: { params: Promise<{ id:
   });
   const history = [...buckets].map(([observedAt, values]) => ({ observedAt, ...values })).slice(-144);
   const agentList = (agents ?? []).map((agent) => ({ ...agent, is_online: Boolean(agent.last_seen_at && now - new Date(agent.last_seen_at).getTime() <= FRESH_METRIC_MS) }));
-  return <LegacyMonitor farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} addMinerAction={addMiner.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
+  return <LegacyMonitor farmId={farm.id} farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} poolCommands={(poolCommands ?? []) as PoolCommandSummary[]} addMinerAction={addMiner.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
 }

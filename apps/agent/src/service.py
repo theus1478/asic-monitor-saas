@@ -18,7 +18,9 @@ from pathlib import Path
 
 import httpx
 
-from miners import poll_miner
+from miners import apply_pool_config, poll_miner
+
+AGENT_VERSION = "0.3.0"
 
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
@@ -118,6 +120,12 @@ def config_url_from_api_url(api_url: str) -> str:
     return api_url.rstrip("/") + "/config"
 
 
+def commands_url_from_api_url(api_url: str) -> str:
+    if api_url.endswith("/metrics"):
+        return api_url[: -len("/metrics")] + "/commands"
+    return api_url.rstrip("/") + "/commands"
+
+
 async def fetch_remote_miners(client: httpx.AsyncClient, config_url: str, headers: dict):
     try:
         response = await client.get(config_url, headers=headers)
@@ -128,10 +136,31 @@ async def fetch_remote_miners(client: httpx.AsyncClient, config_url: str, header
         return None
 
 
+async def process_pool_command(client: httpx.AsyncClient, commands_url: str, headers: dict):
+    try:
+        response = await client.get(commands_url, headers=headers)
+        response.raise_for_status()
+        command = response.json().get("command")
+        if not command or command.get("kind") != "pool_update":
+            return
+        print(f"Aplicando troca de pool em {len(command.get('miners', []))} maquina(s)...", flush=True)
+        results = await asyncio.gather(*(
+            apply_pool_config(miner, miner.get("credentials"), command.get("pools", []))
+            for miner in command.get("miners", [])
+        ))
+        report = await client.post(commands_url, headers=headers, json={"command_id": command["id"], "results": list(results)})
+        report.raise_for_status()
+        ok = sum(1 for item in results if item.get("success"))
+        print(f"Troca de pool finalizada: {ok}/{len(results)} com sucesso.", flush=True)
+    except Exception as error:
+        print(f"Falha ao processar comando de pool: {error}", flush=True)
+
+
 async def run(config: dict) -> None:
-    headers = {"Authorization": f"Bearer {config['agent_token']}"}
+    headers = {"Authorization": f"Bearer {config['agent_token']}", "X-Agent-Version": AGENT_VERSION}
     interval = max(10, int(config.get("poll_interval_seconds", 30)))
     config_url = config_url_from_api_url(config["api_url"])
+    commands_url = commands_url_from_api_url(config["api_url"])
     known_miners = config.get("miners", [])
 
     print(f"Coletor em execucao. Enviando para {config['api_url']} a cada {interval}s.")
@@ -142,6 +171,8 @@ async def run(config: dict) -> None:
             remote_miners = await fetch_remote_miners(client, config_url, headers)
             if remote_miners is not None:
                 known_miners = remote_miners
+
+            await process_pool_command(client, commands_url, headers)
 
             metrics = await asyncio.gather(*(poll_miner(m) for m in known_miners))
             payload = {"observed_at": datetime.now(timezone.utc).isoformat(), "metrics": list(metrics)}

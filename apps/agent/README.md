@@ -2,7 +2,8 @@
 
 Executável Windows único (`ASICMonitorAgent.exe`), sem instalador separado e
 sem exigir Python na máquina do cliente. Ele não abre portas para a internet:
-só envia métricas por HTTPS para a API Cloud.
+só conversa por HTTPS com a API Cloud. Além da telemetria, recebe comandos de
+troca de pool e os executa diretamente nas ASICs da rede local.
 
 Na primeira execução, pede a URL da API e o token do agente (gerado no painel,
 em Fazendas → Gerar token do agente) — ou aceita via `--api-url`/`--agent-token`.
@@ -16,7 +17,7 @@ Distribuído como binário, mas o código-fonte é `service.py` + `miners.py` ne
 diretório. Para gerar (ou regenerar) o executável:
 
 ```powershell
-python -m pip install --user pyinstaller httpx
+python -m pip install --user pyinstaller -r apps/agent/requirements.txt
 cd apps/agent/src
 python -m PyInstaller --onefile --console --name ASICMonitorAgent --clean service.py
 ```
@@ -35,3 +36,12 @@ coletor busca em `GET /api/agent/config` (mesmo token do agente) a lista de
 máquinas cadastradas naquela fazenda no painel — nome, IP, porta e fabricante
 (`antminer`, `whatsminer` ou `avalon`). O campo `miners` do arquivo local só
 serve como fallback caso a busca na nuvem falhe temporariamente.
+
+## Troca de pool
+
+O painel cria um comando cifrado e o associa ao coletor da fazenda. A cada
+ciclo, o agente consulta `GET /api/agent/commands`, aplica até três pools nas
+máquinas escolhidas e envia o resultado por máquina ao mesmo endpoint. Há
+suporte para Antminer com firmware Bitmain ou VNish, Avalon e Whatsminer API
+v2/v3. Para usar esse recurso é necessário instalar a versão 0.3.0 ou posterior
+do executável.
