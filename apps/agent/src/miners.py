@@ -219,7 +219,8 @@ def _base_record(name, ip, port, mtype):
         "model": None, "hashrate_ths": None, "hashrate_avg_ths": None,
         "power_w": None, "power_estimated": False, "efficiency_jth": None,
         "voltage_v": None, "current_a": None, "volt_source": None,
-        "temp_c": None, "env_temp_c": None, "fans_rpm": [],
+        "temp_c": None, "env_temp_c": None, "fans_rpm": [], "boards": [],
+        "cooling_mode": None, "cooling_inferred": False,
         "uptime_s": 0, "accepted": 0, "rejected": 0,
         "pool": None, "worker": None,
     }
@@ -295,9 +296,25 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None):
                          _ws_temp_from_devs(devs_resp)) if t and t > 0]
     rec["temp_c"] = round(max(temps), 1) if temps else None
     rec["env_temp_c"] = _f(_first(s, "Env Temp", "Env Temperature"))
+    # temperatura por hashboard (via devs)
+    boards = []
+    for i, dv in enumerate(_get_list(devs_resp or {}, "DEVS")):
+        boards.append({
+            "name": f"Placa {dv.get('Slot', dv.get('ASC', i))}",
+            "chip_temp_c": _f(dv.get("Chip Temp Max")),
+            "pcb_temp_c": _f(dv.get("Temperature")),
+            "hashrate_ths": _normalize_hashrate(dv.get("MHS av")),
+        })
+    rec["boards"] = boards
     fan_in = _f(_first(s, "Fan Speed In"))
     fan_out = _f(_first(s, "Fan Speed Out"))
     rec["fans_rpm"] = [x for x in (fan_in, fan_out) if x]
+    # BixBit nao expoe um campo de "modo"; inferimos pela rotacao dos fans:
+    # fans girando = ar; fans zerados = imersao. Marcado como inferido.
+    if fan_in is not None or fan_out is not None:
+        active = max(fan_in or 0, fan_out or 0) > 100
+        rec["cooling_mode"] = "air" if active else "immersion"
+        rec["cooling_inferred"] = True
     p = _f(_first(s, "Power", "Power Realtime"))
     if p and p > 0:
         rec["power_w"] = round(p, 1)
@@ -354,13 +371,29 @@ def parse_antminer_vnish(name, ip, port, summary_json):
 
     ct = m.get("chip_temp") or {}
     rec["temp_c"] = _f(ct.get("max"))
-    chip_maxes = [_f((c.get("chip_temp") or {}).get("max")) for c in m.get("chains", [])]
-    chip_maxes = [c for c in chip_maxes if c]
+    # temperatura por hashboard (via chains)
+    boards = []
+    for i, c in enumerate(m.get("chains", [])):
+        cct = c.get("chip_temp") or {}
+        cpt = c.get("pcb_temp") or {}
+        boards.append({
+            "name": f"Placa {c.get('id', i)}",
+            "chip_temp_c": _f(cct.get("max")),
+            "pcb_temp_c": _f(cpt.get("max")),
+            "hashrate_ths": _normalize_hashrate(c.get("hashrate_rt")),
+        })
+    rec["boards"] = boards
+    chip_maxes = [b["chip_temp_c"] for b in boards if b["chip_temp_c"]]
     if chip_maxes:
         rec["temp_c"] = max(chip_maxes)
     fans = [int(_f(f.get("rpm"), 0)) for f in (m.get("cooling", {}).get("fans") or [])
             if _f(f.get("rpm"))]
     rec["fans_rpm"] = fans
+    # modo de refrigeracao: declarado pelo firmware (cooling.settings.mode.name)
+    mode = (((m.get("cooling") or {}).get("settings") or {}).get("mode") or {}).get("name")
+    if mode:
+        rec["cooling_mode"] = str(mode).lower()  # ex.: immersion, air, hydro
+        rec["cooling_inferred"] = False
     st = m.get("miner_status") or {}
     rec["uptime_s"] = int(_f(st.get("miner_state_time"), 0))
 
@@ -419,6 +452,22 @@ def parse_avalon(name, ip, port, summary_resp, stats_resp, pools_resp):
             max(mtmax) if mtmax else (_f(fields.get("TMax")) or _f(fields.get("Temp"))))
         rec["env_temp_c"] = _f(fields.get("Temp"))
 
+        # temperatura por hashboard: media (MTavg) como principal (bate com a
+        # interface do 1246), maxima (MTmax) como secundario.
+        boards = []
+        mghs = [_f(x) for x in fields.get("MGHS", "").split() if _f(x) is not None]
+        board_count = max(len(mtavg), len(mtmax))
+        for i in range(board_count):
+            avg_t = mtavg[i] if i < len(mtavg) else None
+            max_t = mtmax[i] if i < len(mtmax) else None
+            boards.append({
+                "name": f"H{i}",
+                "chip_temp_c": avg_t if avg_t is not None else max_t,
+                "pcb_temp_c": max_t,
+                "hashrate_ths": round(mghs[i] / 1000, 2) if i < len(mghs) else None,
+            })
+        rec["boards"] = boards
+
         ver = fields.get("Ver", "")
         mnum = re.match(r"(\d+)", ver)
         rec["model"] = f"AvalonMiner {mnum.group(1)}" if mnum else (ver or None)
@@ -440,6 +489,9 @@ def parse_avalon(name, ip, port, summary_resp, stats_resp, pools_resp):
         fans = [int(_f(fields.get(f))) for f in ("Fan1", "Fan2", "Fan3", "Fan4")
                 if _f(fields.get(f))]
         rec["fans_rpm"] = fans
+        if fans:
+            rec["cooling_mode"] = "air" if max(fans) > 100 else "immersion"
+            rec["cooling_inferred"] = True
 
         if rec["hashrate_ths"] is None:
             g = _f(fields.get("GHSavg")) or _f(fields.get("GHSmm"))
@@ -605,19 +657,23 @@ async def _reboot_antminer(ip, credentials):
 
 
 async def _reboot_whatsminer(ip, port):
-    """BTMiner expoe 'reboot' como comando cgminer simples, sem exigir o canal
+    """Tentativa: 'reboot' como comando cgminer simples, sem exigir o canal
     cifrado com senha admin (esse so e necessario pra mexer em pool/carteira).
-    E o mesmo caminho que ferramentas como o WhatsminerTool usam."""
+    NAO CONFIRMADO contra hardware real - se o BTMiner nao devolver um STATUS
+    reconhecivel, tratamos como falha (em vez de assumir sucesso as cegas) e
+    devolvemos a resposta crua pra ajudar a descobrir o comando certo."""
     try:
         response = await api_call(ip, port, "reboot")
     except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError, OSError) as e:
         return f"conexão encerrada após envio (reboot provável): {e}"
     status_list = _get_list(response, "STATUS")
-    entry = status_list[0] if status_list else {}
+    if not status_list:
+        raise RuntimeError(f"BTMiner não confirmou o reboot — resposta: {str(response)[:300]}")
+    entry = status_list[0]
     status_code = entry.get("STATUS")
     message = entry.get("Msg") or str(response)[:200]
-    if status_code in ("S", "I") or not status_list:
-        return f"Comando 'reboot' aceito: {message}" if status_list else "Comando 'reboot' enviado."
+    if status_code in ("S", "I"):
+        return f"Comando 'reboot' aceito: {message}"
     raise RuntimeError(f"BTMiner recusou o reboot: {message}")
 
 
