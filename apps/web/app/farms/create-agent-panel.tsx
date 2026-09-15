@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { createAgent } from "./actions";
 
-type Agent = { id: string; name: string; status: string; last_seen_at: string | null };
+type Agent = { id: string; name: string; status: string; last_seen_at: string | null; is_online?: boolean };
 
 export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: Agent[] }) {
   const [token, setToken] = useState<string | null>(null);
@@ -47,7 +47,7 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
       ? <p className="muted">Nenhum agente ativado nesta fazenda ainda.</p>
       : <ul className="agent-list">
           {agents.map((a) => <li key={a.id}>
-            <span className={`status-dot ${a.status === "online" ? "" : "off"}`} /> {a.name} — {a.status}
+            <span className={`status-dot ${a.is_online ? "" : "off"}`} /> {a.name} — {a.is_online ? "online" : "offline"}
             {a.last_seen_at ? ` · último contato ${new Date(a.last_seen_at).toLocaleString("pt-BR")}` : ""}
           </li>)}
         </ul>}

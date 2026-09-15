@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signIn, signUp } from "../auth/actions";
+import { SiteLogo } from "../site-logo";
 
 type Props = { searchParams: Promise<{ mode?: string; error?: string; message?: string; next?: string }> };
 
@@ -9,7 +10,7 @@ export default async function SignInPage({ searchParams }: Props) {
 
   return <main className="auth-page">
     <section className="auth-card">
-      <Link href="/" className="brand"><span className="brand-mark">A</span><span>ASIC <b>Monitor</b></span></Link>
+      <SiteLogo href="/" />
       <div className="auth-heading"><p className="eyebrow">PLATAFORMA EM NUVEM</p><h1>{isSignUp ? "Criar sua conta" : "Acessar sua operação"}</h1><p>{isSignUp ? "Cadastre-se para iniciar a configuração da sua fazenda." : "Entre para acompanhar suas ASICs de qualquer dispositivo."}</p></div>
       {params.error && <div className="form-message error">{params.error}</div>}
       {params.message && <div className="form-message success">{params.message}</div>}

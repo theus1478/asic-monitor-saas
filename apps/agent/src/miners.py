@@ -9,10 +9,18 @@ Clientes de API por fabricante, somente leitura:
 """
 
 import asyncio
+import base64
+import hashlib
 import json
 import re
+import struct
+import time
 import urllib.request
 from datetime import datetime, timezone
+
+import httpx
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from passlib.hash import md5_crypt
 
 SOCKET_TIMEOUT = 6
 HTTP_TIMEOUT = 6
@@ -96,6 +104,33 @@ def _http_get_json_sync(url, timeout):
 
 async def http_get_json(url, timeout=HTTP_TIMEOUT):
     return await asyncio.to_thread(_http_get_json_sync, url, timeout)
+
+
+async def _raw_socket_json(ip, port, payload, framed=False, timeout=SOCKET_TIMEOUT):
+    """Envia JSON bruto; API v3 usa tamanho little-endian antes do corpo."""
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=timeout)
+    raw_payload = json.dumps(payload, separators=(",", ":")).encode()
+    try:
+        writer.write((struct.pack("<I", len(raw_payload)) if framed else b"") + raw_payload)
+        await writer.drain()
+        if framed:
+            size = struct.unpack("<I", await asyncio.wait_for(reader.readexactly(4), timeout=timeout))[0]
+            raw = await asyncio.wait_for(reader.readexactly(size), timeout=timeout)
+        else:
+            chunks = []
+            while True:
+                chunk = await asyncio.wait_for(reader.read(8192), timeout=timeout)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            raw = b"".join(chunks)
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+    return json.loads(raw.decode("utf-8", errors="ignore").replace("\x00", "").strip())
 
 
 # =================== HELPERS DE PARSING ===================
@@ -415,6 +450,151 @@ def parse_avalon(name, ip, port, summary_resp, stats_resp, pools_resp):
                 rec["hashrate_avg_ths"] = round(g / 1000, 3)
     _apply_pool_socket(rec, pools_resp)
     return _finalize(rec)
+
+
+# =================== CONTROLE DE POOLS ===================
+
+def _aes_ecb_encrypt(data: bytes, key: bytes, zero_padding=False) -> bytes:
+    pad_size = (16 - len(data) % 16) % 16 if zero_padding else (16 - len(data) % 16) or 16
+    padding = b"\0" * pad_size if zero_padding else bytes([pad_size]) * pad_size
+    encryptor = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
+    return encryptor.update(data + padding) + encryptor.finalize()
+
+
+def _aes_ecb_decrypt(data: bytes, key: bytes) -> bytes:
+    decryptor = Cipher(algorithms.AES(key), modes.ECB()).decryptor()
+    return decryptor.update(data) + decryptor.finalize()
+
+
+async def _set_antminer_pools(ip, credentials, pools):
+    username, password = credentials["username"], credentials["password"]
+    normalized = [{"url": p["url"], "user": p["worker"], "pass": p.get("password", "x")} for p in pools]
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            unlocked = await client.post(f"http://{ip}/api/v1/unlock", json={"pw": password})
+            if unlocked.status_code == 200 and unlocked.json().get("token"):
+                token = unlocked.json()["token"]
+                response = await client.post(f"http://{ip}/api/v1/settings", headers={"Authorization": token}, json={"miner": {"pools": normalized}})
+                response.raise_for_status()
+                return "Pool alterada via API VNish."
+    except Exception:
+        pass
+
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, auth=httpx.DigestAuth(username, password)) as client:
+        response = await client.post(f"http://{ip}/cgi-bin/set_miner_conf.cgi", json={"pools": normalized})
+        response.raise_for_status()
+        if response.text.strip():
+            try:
+                body = response.json()
+                if body.get("stats") == "fail" or body.get("status") == "error":
+                    raise RuntimeError(body.get("error") or body.get("message") or "Firmware rejeitou a configuração.")
+            except json.JSONDecodeError:
+                pass
+    return "Pool alterada via API Bitmain."
+
+
+async def _set_avalon_pool(ip, port, credentials, pools):
+    primary = pools[0]
+    parameter = ",".join([credentials["username"], credentials["password"], primary["url"], primary["worker"], primary.get("password", "x")])
+    async def ascset(value):
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=SOCKET_TIMEOUT)
+        try:
+            writer.write(json.dumps({"command": "ascset", "parameter": value}).encode())
+            await writer.drain()
+            return await asyncio.wait_for(reader.read(8192), timeout=SOCKET_TIMEOUT)
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+    raw = await ascset(f"0,setpool,{parameter}")
+    text = raw.decode("utf-8", errors="ignore").replace("\x00", "").strip()
+    if not text or any(word in text.lower() for word in ("error", "failed", "denied")):
+        raise RuntimeError(text or "Avalon não confirmou a alteração.")
+    await ascset("0,reboot,0")
+    return "Pool principal alterada; Avalon reiniciada para aplicar."
+
+
+async def _set_whatsminer_v3(ip, credentials, pools):
+    info = await _raw_socket_json(ip, 4433, {"cmd": "get.device.info"}, framed=True)
+    if info.get("code") != 0 or not isinstance(info.get("msg"), dict) or not info["msg"].get("salt"):
+        raise RuntimeError(info.get("msg") or "API v3 não forneceu o salt.")
+    command = "set.miner.pools"
+    ts = int(time.time())
+    password = credentials["password"]
+    digest = hashlib.sha256(f"{command}{password}{info['msg']['salt']}{ts}".encode()).digest()
+    token = base64.b64encode(digest).decode()[:8]
+    plain = json.dumps([{"pool": p["url"], "worker": p["worker"], "passwd": p.get("password", "x")} for p in pools], separators=(",", ":")).encode()
+    encrypted = base64.b64encode(_aes_ecb_encrypt(plain, digest, zero_padding=True)).decode()
+    response = await _raw_socket_json(ip, 4433, {"cmd": command, "ts": ts, "token": token, "account": credentials["username"], "param": encrypted}, framed=True)
+    if response.get("code") != 0:
+        raise RuntimeError(str(response.get("msg") or response.get("desc") or f"Código {response.get('code')}"))
+    return "Pool alterada via API Whatsminer v3."
+
+
+async def _set_whatsminer_v2(ip, port, credentials, pools):
+    token_response = await api_call(ip, port, "get_token")
+    token_data = token_response.get("Msg", token_response)
+    if isinstance(token_data, str):
+        parts = token_data.split()
+        if len(parts) < 3:
+            raise RuntimeError("Token v2 inválido.")
+        token_data = {"time": parts[0], "salt": parts[1], "newsalt": parts[2]}
+    salt, newsalt, token_time = str(token_data["salt"]), str(token_data["newsalt"]), str(token_data["time"])
+    password_hash = md5_crypt.hash(credentials["password"], salt=salt).split("$")[-1]
+    sign = md5_crypt.hash(password_hash + token_time, salt=newsalt).split("$")[-1]
+    command = {"cmd": "update_pools", "token": sign}
+    for index in range(3):
+        pool = pools[index] if index < len(pools) else {"url": None, "worker": None, "password": None}
+        command.update({f"pool{index + 1}": pool.get("url"), f"worker{index + 1}": pool.get("worker"), f"passwd{index + 1}": pool.get("password")})
+    aes_key = hashlib.sha256(password_hash.encode()).digest()
+    ciphertext = _aes_ecb_encrypt(json.dumps(command).encode(), aes_key, zero_padding=True)
+    response = await _raw_socket_json(ip, port, {"enc": 1, "data": base64.b64encode(ciphertext).decode()})
+    if "enc" in response and isinstance(response.get("enc"), str):
+        response = json.loads(_aes_ecb_decrypt(base64.b64decode(response["enc"]), aes_key).rstrip(b"\0").decode())
+    if response.get("Code") not in (131, "131") and response.get("STATUS") != "S":
+        raise RuntimeError(str(response.get("Msg") or response.get("Description") or "API v2 rejeitou a configuração."))
+    return "Pool alterada via API Whatsminer v2."
+
+
+async def _set_whatsminer_pools(ip, port, credentials, pools):
+    errors = []
+    try:
+        return await _set_whatsminer_v3(ip, credentials, pools)
+    except Exception as error:
+        errors.append(f"v3: {error}")
+    try:
+        return await _set_whatsminer_v2(ip, port, credentials, pools)
+    except Exception as error:
+        errors.append(f"v2: {error}")
+    raise RuntimeError("; ".join(errors))
+
+
+async def apply_pool_config(miner, credentials, pools):
+    """Aplica até três pools em uma ASIC e devolve resultado sem credenciais."""
+    name = miner.get("name") or miner.get("ip") or "Máquina"
+    result = {"miner_id": miner.get("id"), "name": name, "success": False, "message": ""}
+    try:
+        ip = miner["ip"]
+        port = int(miner.get("port") or miner.get("protocol_port") or 4028)
+        mtype = str(miner.get("type", "antminer")).lower()
+        if not credentials or not credentials.get("username") or not credentials.get("password"):
+            raise ValueError("Credenciais ausentes.")
+        if not pools:
+            raise ValueError("Nenhuma pool informada.")
+        if mtype == "antminer":
+            message = await _set_antminer_pools(ip, credentials, pools)
+        elif mtype == "whatsminer":
+            message = await _set_whatsminer_pools(ip, port, credentials, pools)
+        elif mtype == "avalon":
+            message = await _set_avalon_pool(ip, port, credentials, pools)
+        else:
+            raise ValueError(f"Fabricante sem suporte: {mtype}")
+        result.update(success=True, message=message)
+    except Exception as error:
+        result["message"] = str(error)[:500]
+    return result
 
 
 # =================== DISPATCH ===================

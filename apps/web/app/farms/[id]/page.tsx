@@ -1,56 +1,45 @@
 import { notFound } from "next/navigation";
-import { PageHeader, Shell } from "../../components";
 import { createClient } from "../../../lib/supabase/server";
+import { currentTimeMs } from "../../../lib/time";
 import { addMiner } from "../actions";
 import { CreateAgentPanel } from "../create-agent-panel";
+import { LegacyMonitor, type MonitorMiner } from "./legacy-monitor";
+import type { PoolCommandSummary } from "./pool-control";
+
+type Miner = { id: string; name: string; ip: string; protocol_port: number; type: string; enabled: boolean };
+type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string; payload: Record<string, unknown> | null };
+const FRESH_METRIC_MS = 90_000;
 
 export default async function FarmDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
-
   const { data: farm } = await supabase.from("farms").select("id, name, timezone").eq("id", id).maybeSingle();
   if (!farm) notFound();
-
-  const { data: miners } = await supabase
-    .from("miners")
-    .select("id, name, ip, protocol_port, type, enabled")
-    .eq("farm_id", id)
-    .order("created_at");
-
-  const { data: agents } = await supabase
-    .from("agents")
-    .select("id, name, status, last_seen_at")
-    .eq("farm_id", id)
-    .order("id");
-
-  const addMinerForFarm = addMiner.bind(null, id);
-  const minerList = miners ?? [];
-
-  return <Shell>
-    <PageHeader title={farm.name} description={`Fuso horário: ${farm.timezone}`} />
-    <section className="card table-card">
-      <h2>Máquinas cadastradas</h2>
-      {minerList.length === 0
-        ? <p className="muted">Nenhuma máquina cadastrada ainda.</p>
-        : <div className="table-wrap">
-            <table>
-              <thead><tr><th>Nome</th><th>IP</th><th>Porta</th><th>Fabricante</th></tr></thead>
-              <tbody>{minerList.map((m) => <tr key={m.id}><td>{m.name}</td><td>{m.ip}</td><td>{m.protocol_port}</td><td>{m.type}</td></tr>)}</tbody>
-            </table>
-          </div>}
-      <form action={addMinerForFarm} className="inline-form">
-        <input name="name" placeholder="Nome (ex: ASIC-01)" required />
-        <input name="ip" placeholder="IP local (ex: 192.168.1.101)" required />
-        <input name="port" placeholder="Porta" defaultValue={4028} />
-        <select name="type" defaultValue="antminer">
-          <option value="antminer">Antminer</option>
-          <option value="whatsminer">Whatsminer</option>
-          <option value="avalon">Avalon</option>
-        </select>
-        <button className="button secondary" type="submit">Adicionar máquina</button>
-      </form>
-      <small className="muted">O coletor busca essa lista automaticamente da nuvem — não precisa editar o config.json local.</small>
-    </section>
-    <CreateAgentPanel farmId={farm.id} agents={agents ?? []} />
-  </Shell>;
+  const [{ data: miners }, { data: agents }, { data: poolCommands }] = await Promise.all([
+    supabase.from("miners").select("id, name, ip, protocol_port, type, enabled").eq("farm_id", id).order("created_at"),
+    supabase.from("agents").select("id, name, status, last_seen_at").eq("farm_id", id).order("id"),
+    supabase.from("pool_commands").select("id, pool_url, target_count, status, created_at, result").eq("farm_id", id).order("created_at", { ascending: false }).limit(10),
+  ]);
+  const minerList = (miners ?? []) as Miner[];
+  const ids = minerList.map((miner) => miner.id);
+  const { data } = ids.length ? await supabase.from("miner_metrics").select("miner_id, online, hashrate_ths, temperature_c, power_w, observed_at, payload").in("miner_id", ids).order("observed_at", { ascending: false }).limit(Math.max(720, ids.length * 120)) : { data: [] };
+  const metrics = (data ?? []) as Metric[];
+  const latest = new Map<string, Metric>();
+  metrics.forEach((metric) => { if (!latest.has(metric.miner_id)) latest.set(metric.miner_id, metric); });
+  const now = currentTimeMs();
+  const monitorMiners = minerList.map((miner) => {
+    const metric = latest.get(miner.id);
+    const fresh = Boolean(metric && now - new Date(metric.observed_at).getTime() <= FRESH_METRIC_MS);
+    return { ...(metric?.payload ?? {}), id: miner.id, name: miner.name, ip: miner.ip, port: miner.protocol_port, type: miner.type, online: Boolean(metric?.online && fresh), observed_at: metric?.observed_at ?? null, hashrate_ths: metric?.hashrate_ths ?? null, temp_c: metric?.temperature_c ?? null, power_w: metric?.power_w ?? null } as MonitorMiner;
+  });
+  const buckets = new Map<string, { hashrate: number; power: number }>();
+  [...metrics].reverse().forEach((metric) => {
+    const date = new Date(metric.observed_at); date.setSeconds(0, 0); const key = date.toISOString();
+    const value = buckets.get(key) ?? { hashrate: 0, power: 0 };
+    if (metric.online) { value.hashrate += metric.hashrate_ths ?? 0; value.power += metric.power_w ?? 0; }
+    buckets.set(key, value);
+  });
+  const history = [...buckets].map(([observedAt, values]) => ({ observedAt, ...values })).slice(-144);
+  const agentList = (agents ?? []).map((agent) => ({ ...agent, is_online: Boolean(agent.last_seen_at && now - new Date(agent.last_seen_at).getTime() <= FRESH_METRIC_MS) }));
+  return <LegacyMonitor farmId={farm.id} farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} poolCommands={(poolCommands ?? []) as PoolCommandSummary[]} addMinerAction={addMiner.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
 }
