@@ -28,15 +28,23 @@ regenerar) o executável:
 ```powershell
 python -m pip install --user pyinstaller -r apps/agent/requirements.txt
 cd apps/agent/src
-python -m PyInstaller --onefile --windowed --name ASICMonitorAgent --clean gui_app.py
+python -m PyInstaller --onefile --windowed --noupx --name ASICMonitorAgent --clean gui_app.py
 ```
 
 O resultado fica em `dist/ASICMonitorAgent.exe` — copie para
 `apps/web/public/downloads/ASICMonitorAgent.exe` para publicar no site.
 
-Por não ser assinado digitalmente, o Windows SmartScreen mostra um aviso
-("Editor desconhecido") na primeira execução; o usuário precisa clicar em
-"Mais informações" → "Executar assim mesmo".
+`--noupx` não é opcional: com a compressão UPX padrão do PyInstaller, o
+Windows Defender marca o executável como `Trojan:Win32/Wacatac.B!ml` (falso
+positivo do classificador de ML dele, reage ao padrão de compressão, não ao
+conteúdo) — confirmado testando localmente com `Start-MpScan`. Sem UPX, o
+arquivo fica ~1MB maior mas passa limpo.
+
+Por não ser assinado digitalmente, o Windows SmartScreen ainda pode mostrar
+um aviso ("Editor desconhecido") na primeira execução; o usuário precisa
+clicar em "Mais informações" → "Executar assim mesmo". Isso é diferente do
+Defender marcar como vírus — é só o SmartScreen dizendo que não conhece o
+publicador.
 
 ## Fonte da lista de máquinas
 
