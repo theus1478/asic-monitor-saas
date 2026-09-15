@@ -247,7 +247,9 @@ def _estimate_power(model, hashrate_ths):
 
 def _finalize(rec):
     hr = rec.get("hashrate_avg_ths") or rec.get("hashrate_ths")
-    if rec.get("type") in ("antminer", "avalon") and rec.get("power_w") and rec["power_w"] > 0:
+    # Antminer (Bitmain) nao reporta tensao/corrente na API - nao inventar um
+    # valor sintetico pra ela. Avalon reporta de verdade (via PS[], ver parse_avalon).
+    if rec.get("type") == "avalon" and rec.get("power_w") and rec["power_w"] > 0 and rec.get("voltage_v") is None:
         rec["voltage_v"] = GRID_VOLTAGE
         rec["current_a"] = round(rec["power_w"] / GRID_VOLTAGE, 1)
         rec["volt_source"] = "230V nominal"
@@ -405,10 +407,8 @@ def parse_antminer_vnish(name, ip, port, summary_json):
         w, est = _estimate_power(rec["model"], rec["hashrate_ths"])
         rec["power_w"] = w
         rec["power_estimated"] = est
-    if rec["power_w"] and not rec["power_estimated"]:
-        rec["voltage_v"] = GRID_VOLTAGE
-        rec["current_a"] = round(rec["power_w"] / GRID_VOLTAGE, 1)
-        rec["volt_source"] = "AC_nominal"
+    # Bitmain nao reporta tensao/corrente na API do VNish - nao inventar um
+    # valor sintetico (230V nominal) pra parecer leitura real.
 
     chosen = None
     for p in m.get("pools", []):

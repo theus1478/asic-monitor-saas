@@ -29,6 +29,15 @@ class ParserBoardsAndCoolingTests(unittest.TestCase):
         self.assertEqual(rec["cooling_mode"], "immersion")
         self.assertFalse(rec["cooling_inferred"])
 
+    def test_antminer_never_reports_voltage_or_current(self):
+        """Bitmain nao expoe tensao/corrente na API - nunca deve aparecer um
+        valor sintetico (230V nominal) como se fosse leitura real."""
+        summary = {"miner": {"miner_type": "Antminer S19j Pro", "power_consumption": 3050, "chains": [], "pools": []}}
+        rec = miners.parse_antminer_vnish("J PRO", "192.168.0.1", 4028, summary)
+        self.assertIsNone(rec["voltage_v"])
+        self.assertIsNone(rec["current_a"])
+        self.assertIsNone(rec["volt_source"])
+
     def test_whatsminer_infers_air_cooling_from_spinning_fans(self):
         summary = {"SUMMARY": [{
             "MHS av": 10000, "Elapsed": 3600, "Accepted": 100, "Rejected": 1,
