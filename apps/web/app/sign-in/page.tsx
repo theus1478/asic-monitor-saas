@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { signIn, signUp } from "../auth/actions";
+import { LanguageSwitcher } from "../language-switcher";
 import { SiteLogo } from "../site-logo";
 import { TurnstileWidget } from "../turnstile-widget";
 
@@ -8,22 +10,24 @@ type Props = { searchParams: Promise<{ mode?: string; error?: string; message?: 
 export default async function SignInPage({ searchParams }: Props) {
   const params = await searchParams;
   const isSignUp = params.mode === "signup";
+  const t = await getTranslations("auth");
+  const c = await getTranslations("common");
 
   return <main className="auth-page">
     <section className="auth-card">
-      <SiteLogo href="/" />
-      <div className="auth-heading"><p className="eyebrow">PLATAFORMA EM NUVEM</p><h1>{isSignUp ? "Criar sua conta" : "Acessar sua operação"}</h1><p>{isSignUp ? "Cadastre-se para iniciar a configuração da sua fazenda." : "Entre para acompanhar suas ASICs de qualquer dispositivo."}</p></div>
+      <div className="auth-top"><SiteLogo href="/" /><LanguageSwitcher /></div>
+      <div className="auth-heading"><p className="eyebrow">{c("cloudPlatform")}</p><h1>{isSignUp ? t("signUpTitle") : t("signInTitle")}</h1><p>{isSignUp ? t("signUpSubtitle") : t("signInSubtitle")}</p></div>
       {params.error && <div className="form-message error">{params.error}</div>}
       {params.message && <div className="form-message success">{params.message}</div>}
       <form action={isSignUp ? signUp : signIn} className="auth-form">
-        {isSignUp && <label>Nome completo<input name="fullName" autoComplete="name" required placeholder="Seu nome" /></label>}
-        <label>E-mail<input name="email" type="email" autoComplete="email" required placeholder="voce@empresa.com" /></label>
-        <label>Senha<input name="password" type="password" minLength={8} autoComplete={isSignUp ? "new-password" : "current-password"} required placeholder="Mínimo de 8 caracteres" /></label>
+        {isSignUp && <label>{t("fullName")}<input name="fullName" autoComplete="name" required placeholder={t("fullNamePlaceholder")} /></label>}
+        <label>{t("email")}<input name="email" type="email" autoComplete="email" required placeholder={t("emailPlaceholder")} /></label>
+        <label>{t("password")}<input name="password" type="password" minLength={8} autoComplete={isSignUp ? "new-password" : "current-password"} required placeholder={t("passwordPlaceholder")} /></label>
         {!isSignUp && <input type="hidden" name="next" value={params.next ?? "/dashboard"} />}
         {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && <TurnstileWidget siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />}
-        <button className="button auth-submit" type="submit">{isSignUp ? "Criar conta" : "Entrar"}</button>
+        <button className="button auth-submit" type="submit">{isSignUp ? t("createAccount") : t("signInButton")}</button>
       </form>
-      <p className="auth-switch">{isSignUp ? "Já possui uma conta?" : "Ainda não possui uma conta?"} <Link href={isSignUp ? "/sign-in" : "/sign-in?mode=signup"}>{isSignUp ? "Entrar" : "Criar conta"}</Link></p>
+      <p className="auth-switch">{isSignUp ? t("alreadyHaveAccount") : t("noAccountYet")} <Link href={isSignUp ? "/sign-in" : "/sign-in?mode=signup"}>{isSignUp ? t("signInButton") : t("createAccount")}</Link></p>
     </section>
   </main>;
 }

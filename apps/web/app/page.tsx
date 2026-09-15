@@ -1,37 +1,44 @@
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
+import { LanguageSwitcher } from "./language-switcher";
 import { SiteLogo } from "./site-logo";
 
-export default function Home() {
+export default async function Home() {
+  const t = await getTranslations("landing");
+  const c = await getTranslations("common");
   return <main className="shell">
     <nav className="nav">
       <SiteLogo href="/" />
-      <div className="hero-actions">
-        <Link className="button secondary" href="/sign-in">Entrar</Link>
-        <Link className="button" href="/sign-in?mode=signup">Criar conta</Link>
+      <div className="nav-actions">
+        <LanguageSwitcher />
+        <div className="hero-actions">
+          <Link className="button secondary" href="/sign-in">{t("signIn")}</Link>
+          <Link className="button" href="/sign-in?mode=signup">{t("signUp")}</Link>
+        </div>
       </div>
     </nav>
     <section className="hero"><div className="hero-glow" />
-      <p className="eyebrow">PLATAFORMA EM NUVEM</p>
-      <h1>Monitoramento de ASICs para fazendas que querem escalar.</h1>
-      <p>Um coletor sem interface roda no PC da sua fazenda, lê suas máquinas na rede local e envia os dados para a nuvem. Você acompanha hash rate, temperatura e disponibilidade de qualquer dispositivo, com licença por máquina ativa.</p>
+      <p className="eyebrow">{c("cloudPlatform")}</p>
+      <h1>{t("heroTitle")}</h1>
+      <p>{t("heroBody")}</p>
       <div className="hero-actions">
-        <Link className="button" href="/sign-in?mode=signup">Começar agora</Link>
-        <Link className="button secondary" href="/farms">Baixar o coletor</Link>
+        <Link className="button" href="/sign-in?mode=signup">{t("startNow")}</Link>
+        <Link className="button secondary" href="/farms">{t("downloadCollector")}</Link>
       </div>
     </section>
     <section className="grid">
-      <article className="card"><div className="muted">Coleta local</div><div className="metric">Segura</div><p className="muted">Executável sem interface, sem abrir portas da fazenda.</p></article>
-      <article className="card"><div className="muted">Acesso</div><div className="metric">Multiusuário</div><p className="muted">Equipe e clientes acessam o mesmo painel em qualquer navegador.</p></article>
-      <article className="card"><div className="muted">Licença</div><div className="metric">Por máquina</div><p className="muted">Assinatura mensal com cobrança progressiva por ASIC ativa.</p></article>
+      <article className="card"><div className="muted">{t("featureCollectionTitle")}</div><div className="metric">{t("featureCollectionValue")}</div><p className="muted">{t("featureCollectionBody")}</p></article>
+      <article className="card"><div className="muted">{t("featureAccessTitle")}</div><div className="metric">{t("featureAccessValue")}</div><p className="muted">{t("featureAccessBody")}</p></article>
+      <article className="card"><div className="muted">{t("featureLicenseTitle")}</div><div className="metric">{t("featureLicenseValue")}</div><p className="muted">{t("featureLicenseBody")}</p></article>
     </section>
     <section className="landing-section">
-      <h2>Como funciona</h2>
-      <p>Da conta até o painel em produção, em quatro passos.</p>
+      <h2>{t("howItWorksTitle")}</h2>
+      <p>{t("howItWorksBody")}</p>
       <ol className="steps">
-        <li><b>01</b>Crie sua conta e cadastre a fazenda.</li>
-        <li><b>02</b>Baixe e instale o coletor no PC principal.</li>
-        <li><b>03</b>Cadastre as ASICs pelo endereço IP local.</li>
-        <li><b>04</b>Acompanhe hash rate e alertas em tempo real.</li>
+        <li><b>01</b>{t("step1")}</li>
+        <li><b>02</b>{t("step2")}</li>
+        <li><b>03</b>{t("step3")}</li>
+        <li><b>04</b>{t("step4")}</li>
       </ol>
     </section>
     <footer className="footer">

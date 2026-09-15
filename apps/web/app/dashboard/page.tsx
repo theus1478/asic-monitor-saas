@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { PageHeader, Shell } from "../components";
 import { getOrganizationId } from "../../lib/org-data";
 import { currentTimeMs } from "../../lib/time";
@@ -14,6 +15,7 @@ function formatHashrate(ths: number) {
 }
 
 export default async function DashboardPage() {
+  const t = await getTranslations("dashboard");
   const { supabase, organizationId } = await getOrganizationId();
 
   const { data: farms } = organizationId
@@ -110,33 +112,33 @@ export default async function DashboardPage() {
       .join(" ");
   })();
 
-  return <Shell><PageHeader title="Visão geral" description="Dados recebidos dos agentes conectados." action={<LiveRefresh />} />
+  return <Shell><PageHeader title={t("title")} description={t("description")} action={<LiveRefresh />} />
     <section className="metrics-grid">
-      <article className="card"><p className="eyebrow">MÁQUINAS ONLINE</p><div className="metric">{onlineMachines}<span>/{activeMachines}</span></div><p className="positive">● {availabilityPct}% disponíveis</p></article>
-      <article className="card"><p className="eyebrow">HASH RATE TOTAL</p><div className="metric">{formatHashrate(totalHashrateThs)}</div><p className="muted">{farmList.length} fazenda{farmList.length === 1 ? "" : "s"}</p></article>
-      <article className="card"><p className="eyebrow">MÁQUINAS CADASTRADAS</p><div className="metric">{activeMachines}</div><p className="muted">contam para a licença</p></article>
-      <article className="card"><p className="eyebrow">CONSUMO REGISTRADO · 30 DIAS</p><div className="metric">{recordedKwh.toFixed(2)}<span> kWh</span></div><p className="muted">soma de todas as fazendas</p></article>
+      <article className="card"><p className="eyebrow">{t("machinesOnline")}</p><div className="metric">{onlineMachines}<span>/{activeMachines}</span></div><p className="positive">● {t("availabilityPct", { pct: availabilityPct })}</p></article>
+      <article className="card"><p className="eyebrow">{t("totalHashrate")}</p><div className="metric">{formatHashrate(totalHashrateThs)}</div><p className="muted">{t("farmCount", { count: farmList.length })}</p></article>
+      <article className="card"><p className="eyebrow">{t("registeredMachines")}</p><div className="metric">{activeMachines}</div><p className="muted">{t("countTowardLicense")}</p></article>
+      <article className="card"><p className="eyebrow">{t("recordedConsumption")}</p><div className="metric">{recordedKwh.toFixed(2)}<span> kWh</span></div><p className="muted">{t("sumOfAllFarms")}</p></article>
     </section>
     <section className="content-grid">
       <article className="card chart">
-        <div className="section-title"><div><h2>Hash rate recente</h2><p>Soma das máquinas a cada ciclo do coletor</p></div><b>{formatHashrate(totalHashrateThs)}</b></div>
+        <div className="section-title"><div><h2>{t("recentHashrate")}</h2><p>{t("sumPerCycle")}</p></div><b>{formatHashrate(totalHashrateThs)}</b></div>
         {chartPoints
           ? <div className="chart-lines"><i /><i /><i /><i /><svg viewBox="0 0 600 180" preserveAspectRatio="none"><polyline points={chartPoints} /></svg></div>
-          : <p className="muted">Ainda não há histórico suficiente. Assim que o coletor enviar algumas leituras, o gráfico aparece aqui.</p>}
+          : <p className="muted">{t("notEnoughHistory")}</p>}
       </article>
       <article className="card alerts">
-        <h2>Precisam de atenção</h2>
+        <h2>{t("needsAttention")}</h2>
         {attention.length === 0
-          ? <p className="muted">Todas as máquinas estão online e acima de 10 TH/s.</p>
-          : attention.map((m) => { const metric = latestByMiner.get(m.id); const lowHash = isMinerOnline(m.id) && (metric?.hashrate_ths ?? 0) < 10; return <div className="alert-row" key={m.id}><span className={`status-dot ${lowHash ? "warn" : "off"}`} />{m.name}<small>{lowHash ? `Hashrate baixo: ${(metric?.hashrate_ths ?? 0).toFixed(2)} TH/s` : "Offline ou sem resposta recente"}</small></div>; })}
-        <Link href="/farms" className="text-link">Ver todas as máquinas</Link>
+          ? <p className="muted">{t("allOnlineAndHealthy")}</p>
+          : attention.map((m) => { const metric = latestByMiner.get(m.id); const lowHash = isMinerOnline(m.id) && (metric?.hashrate_ths ?? 0) < 10; return <div className="alert-row" key={m.id}><span className={`status-dot ${lowHash ? "warn" : "off"}`} />{m.name}<small>{lowHash ? t("lowHashrate", { value: (metric?.hashrate_ths ?? 0).toFixed(2) }) : t("offlineOrUnresponsive")}</small></div>; })}
+        <Link href="/farms" className="text-link">{t("seeAllMachines")}</Link>
       </article>
     </section>
     <section>
-      <div className="section-title"><div><h2>Fazendas</h2><p>Estado dos seus agentes locais</p></div><Link href="/farms" className="text-link">Gerenciar</Link></div>
+      <div className="section-title"><div><h2>{t("farms")}</h2><p>{t("agentsState")}</p></div><Link href="/farms" className="text-link">{t("manage")}</Link></div>
       {farmCards.length === 0
-        ? <p className="muted">Nenhuma fazenda cadastrada ainda.</p>
-        : <div className="farm-cards">{farmCards.map((farm) => <article className="card" key={farm.id}><span className={`status-dot ${farm.online > 0 ? "" : "off"}`} /> <b>{farm.name}</b><p className="muted">{farm.timezone}</p><div className="farm-values"><b>{farm.online}/{farm.total}</b><small>online</small><b>{formatHashrate(farm.hashrateThs)}</b><small>hash rate</small></div></article>)}</div>}
+        ? <p className="muted">{t("noFarmsYet")}</p>
+        : <div className="farm-cards">{farmCards.map((farm) => <article className="card" key={farm.id}><span className={`status-dot ${farm.online > 0 ? "" : "off"}`} /> <b>{farm.name}</b><p className="muted">{farm.timezone}</p><div className="farm-values"><b>{farm.online}/{farm.total}</b><small>{t("online")}</small><b>{formatHashrate(farm.hashrateThs)}</b><small>{t("hashRate")}</small></div></article>)}</div>}
     </section>
   </Shell>;
 }

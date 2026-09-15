@@ -2,14 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useState } from "react";
-
-const clientLinks = [
-  { href: "/dashboard", label: "Visão geral", icon: "⌁" },
-  { href: "/farms", label: "Fazendas", icon: "▦" },
-  { href: "/collector", label: "Coletor", icon: "⇣" },
-  { href: "/billing", label: "Licenças", icon: "◇" },
-];
 
 export function SidebarNav({ admin }: { admin: boolean }) {
   const pathname = usePathname();
@@ -17,8 +11,15 @@ export function SidebarNav({ admin }: { admin: boolean }) {
 }
 
 function SidebarNavContent({ admin, pathname }: { admin: boolean; pathname: string }) {
+  const t = useTranslations("nav");
   const [navigating, setNavigating] = useState(false);
-  const links = admin ? [{ href: "/admin", label: "Gestão", icon: "⌁" }] : clientLinks;
+  const clientLinks = [
+    { href: "/dashboard", label: t("overview"), icon: "⌁" },
+    { href: "/farms", label: t("farms"), icon: "▦" },
+    { href: "/collector", label: t("collector"), icon: "⇣" },
+    { href: "/billing", label: t("licenses"), icon: "◇" },
+  ];
+  const links = admin ? [{ href: "/admin", label: t("management"), icon: "⌁" }] : clientLinks;
   return <>
     <div className={`route-progress ${navigating ? "visible" : ""}`} />
     <nav className="sidebar-nav">{links.map((link) => {

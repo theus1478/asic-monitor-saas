@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { getTranslations } from "next-intl/server";
 import { PageHeader, Shell } from "../components";
 
-export default function CollectorPage() {
-  return <Shell><PageHeader title="Coletor local" description="Instale uma vez no computador principal de cada fazenda." action={<a className="button download-button" href="/downloads/ASICMonitorAgent.exe" download>⇣ Baixar para Windows</a>} />
-    <section className="collector-hero card"><div><p className="eyebrow">ASIC MONITOR AGENT · V0.4</p><h2>Conecta sua rede local à nuvem com segurança</h2><p>Um programa com janela, protegido por login próprio da máquina. Escaneia a rede ou cadastra IPs manualmente, envia telemetria e aplica trocas de pool e reinícios pedidos no painel. Nenhuma porta da fazenda precisa ficar exposta.</p><div className="collector-meta"><span>Windows 10/11</span><span>Login local</span><span>Scan de rede</span><span>Atualização a cada 30s</span></div></div><div className="collector-glyph">⇣</div></section>
-    <section className="steps-grid"><article className="card"><b>01</b><h3>Crie a fazenda</h3><p>Cadastre o local e abra a página de monitoramento.</p></article><article className="card"><b>02</b><h3>Gere o token</h3><p>Na página da fazenda, abra “Coletor” e gere uma credencial.</p></article><article className="card"><b>03</b><h3>Abra o coletor</h3><p>Crie o login local, cole a URL e o token em Configurações da nuvem.</p></article><article className="card"><b>04</b><h3>Cadastre as máquinas</h3><p>Escaneie a rede ou adicione o IP manualmente — sincroniza na hora com o painel.</p></article></section>
-    <section className="card collector-help"><div><h2>Pronto para configurar?</h2><p className="muted">Escolha uma fazenda, abra o botão “Coletor” e copie o token de instalação.</p></div><Link href="/farms" className="button secondary">Escolher fazenda</Link></section>
+export default async function CollectorPage() {
+  const t = await getTranslations("collector");
+  return <Shell><PageHeader title={t("title")} description={t("description")} action={<a className="button download-button" href="/downloads/ASICMonitorAgent.exe" download>⇣ {t("downloadWindows")}</a>} />
+    <section className="collector-hero card"><div><p className="eyebrow">{t("heroEyebrow")}</p><h2>{t("heroTitle")}</h2><p>{t("heroBody")}</p><div className="collector-meta"><span>{t("metaWindows")}</span><span>{t("metaLocalLogin")}</span><span>{t("metaNetworkScan")}</span><span>{t("metaUpdateInterval")}</span></div></div><div className="collector-glyph">⇣</div></section>
+    <section className="steps-grid"><article className="card"><b>01</b><h3>{t("step1Title")}</h3><p>{t("step1Body")}</p></article><article className="card"><b>02</b><h3>{t("step2Title")}</h3><p>{t("step2Body")}</p></article><article className="card"><b>03</b><h3>{t("step3Title")}</h3><p>{t("step3Body")}</p></article><article className="card"><b>04</b><h3>{t("step4Title")}</h3><p>{t("step4Body")}</p></article></section>
+    <section className="card collector-help"><div><h2>{t("readyTitle")}</h2><p className="muted">{t("readyBody")}</p></div><Link href="/farms" className="button secondary">{t("chooseFarm")}</Link></section>
   </Shell>;
 }
