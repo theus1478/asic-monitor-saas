@@ -581,13 +581,39 @@ def _http_post_status_sync(url, timeout=HTTP_TIMEOUT):
         return e.code, e.read()
 
 
-async def reboot_miner(miner):
+async def _reboot_antminer(ip, credentials):
+    """VNish exige o mesmo token de /api/v1/unlock usado pra trocar pool -
+    reboot sem autenticacao (o que a versao anterior fazia) volta HTTP 405."""
+    password = (credentials or {}).get("password")
+    if password:
+        try:
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+                unlocked = await client.post(f"http://{ip}/api/v1/unlock", json={"pw": password})
+                if unlocked.status_code == 200 and unlocked.json().get("token"):
+                    token = unlocked.json()["token"]
+                    response = await client.post(f"http://{ip}/api/v1/reboot", headers={"Authorization": token})
+                    if response.status_code in (200, 201, 202, 204):
+                        return f"HTTP {response.status_code} (VNish autenticado)."
+                    raise RuntimeError(f"VNish recusou o reboot autenticado (HTTP {response.status_code}).")
+        except httpx.HTTPError as error:
+            raise RuntimeError(f"Falha ao autenticar no VNish: {error}") from error
+    # Firmware Bitmain padrao (nao-VNish) as vezes aceita sem autenticacao.
+    status, _ = await asyncio.to_thread(lambda: _http_post_status_sync(f"http://{ip}/api/v1/reboot"))
+    if status in (200, 201, 202, 204):
+        return f"HTTP {status}"
+    raise RuntimeError(f"HTTP {status} — confira a senha de acesso da ASIC.")
+
+
+async def reboot_miner(miner, credentials=None):
     """Reinicia a maquina. Comando varia por fabricante.
 
-    - Antminer (Vnish/Bitmain): POST no endpoint de reboot da mesma API aberta do summary.
-    - Avalon (cgminer): comando socket 'restart' na porta 4028.
-    - Whatsminer (BixBit): exige token + comando cifrado com a senha admin -
-      nao suportado sem credenciais (mesma limitacao do projeto anterior).
+    - Antminer (Vnish): autentica em /api/v1/unlock com a senha, depois reinicia
+      com o token recebido (mesmo fluxo da troca de pool). Sem senha, tenta sem
+      autenticacao (funciona em alguns firmwares Bitmain padrao).
+    - Avalon (cgminer): comando socket 'restart' na porta 4028, sem autenticacao.
+    - Whatsminer (BixBit): a API de escrita exige senha admin valida e token
+      cifrado; o comando exato de reboot nao esta documentado/confirmado contra
+      hardware real, entao nao implementamos as cegas - fica como nao suportado.
 
     Reboot derruba a conexao no meio: uma queda logo apos enviar normalmente
     significa que o comando foi aceito, entao tratamos isso como sucesso provavel.
@@ -600,8 +626,8 @@ async def reboot_miner(miner):
 
     try:
         if mtype == "antminer":
-            status, _ = await asyncio.to_thread(lambda: _http_post_status_sync(f"http://{ip}/api/v1/reboot"))
-            result.update(success=status in (200, 201, 202, 204), message=f"HTTP {status}")
+            message = await _reboot_antminer(ip, credentials)
+            result.update(success=True, message=message)
         elif mtype == "avalon":
             try:
                 await api_call(ip, port, "restart")
@@ -609,7 +635,7 @@ async def reboot_miner(miner):
             except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError, OSError) as e:
                 result.update(success=True, message=f"conexão encerrada após envio (reboot provável): {e}")
         elif mtype == "whatsminer":
-            result["message"] = "Whatsminer exige senha admin + token (API de escrita BixBit) — não suportado."
+            result["message"] = "Whatsminer: comando de reinício via API de escrita ainda não confirmado contra hardware real — não suportado por segurança."
         else:
             result["message"] = f"Fabricante sem suporte: {mtype}"
     except Exception as error:

@@ -155,7 +155,7 @@ async def process_command(client: httpx.AsyncClient, commands_url: str, headers:
             label = "Troca de pool"
         elif kind == "reboot":
             print(f"Reiniciando {len(miners)} maquina(s)...", flush=True)
-            results = await asyncio.gather(*(reboot_miner(miner) for miner in miners))
+            results = await asyncio.gather(*(reboot_miner(miner, miner.get("credentials")) for miner in miners))
             label = "Reinício"
         else:
             return

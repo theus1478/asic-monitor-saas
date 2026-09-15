@@ -7,7 +7,8 @@ import type { MonitorMiner } from "./legacy-monitor";
 
 export type PoolCommandSummary = {
   id: string;
-  pool_url: string;
+  kind: string;
+  pool_url: string | null;
   target_count: number;
   status: string;
   created_at: string;
@@ -86,9 +87,9 @@ const STATUS: Record<string, string> = { pending: "Aguardando coletor", processi
 export function PoolCommandHistory({ commands }: { commands: PoolCommandSummary[] }) {
   if (!commands.length) return null;
   return <section className="lm-panel lm-command-history">
-    <div className="lm-panel-head"><div><span className="lm-eyebrow">AUTOMAÇÃO</span><h2>Alterações de pool</h2></div><small>últimos comandos</small></div>
+    <div className="lm-panel-head"><div><span className="lm-eyebrow">AUTOMAÇÃO</span><h2>Comandos enviados</h2></div><small>últimos comandos</small></div>
     <div className="lm-command-list">{commands.map((command) => <details key={command.id}>
-      <summary><span className={`lm-command-status ${command.status}`}>{STATUS[command.status] ?? command.status}</span><b>{command.pool_url}</b><span>{command.target_count} máquina(s)</span><time>{new Date(command.created_at).toLocaleString("pt-BR")}</time></summary>
+      <summary><span className={`lm-command-status ${command.status}`}>{STATUS[command.status] ?? command.status}</span><b>{command.kind === "reboot" ? "⟲ Reinício" : command.pool_url}</b><span>{command.target_count} máquina(s)</span><time>{new Date(command.created_at).toLocaleString("pt-BR")}</time></summary>
       {command.result?.results?.length ? <div className="lm-command-results">{command.result.results.map((result, index) => <p key={`${result.name}-${index}`}><span className={`lm-dot ${result.success ? "lm-on" : "lm-off"}`} /><b>{result.name}</b><span>{result.message}</span></p>)}</div> : <p className="lm-command-wait">O resultado aparecerá quando o coletor processar o comando.</p>}
     </details>)}</div>
   </section>;

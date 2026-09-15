@@ -20,7 +20,7 @@ export default async function FarmDetailPage({ params }: { params: Promise<{ id:
   const [{ data: miners }, { data: agents }, { data: poolCommands }, { data: orgFarms }, licensedCount] = await Promise.all([
     supabase.from("miners").select("id, name, ip, protocol_port, type, enabled, created_at").eq("farm_id", id).order("created_at"),
     supabase.from("agents").select("id, name, status, last_seen_at").eq("farm_id", id).order("id"),
-    supabase.from("pool_commands").select("id, pool_url, target_count, status, created_at, result").eq("farm_id", id).order("created_at", { ascending: false }).limit(10),
+    supabase.from("pool_commands").select("id, kind, pool_url, target_count, status, created_at, result").eq("farm_id", id).order("created_at", { ascending: false }).limit(10),
     supabase.from("farms").select("id").eq("organization_id", farm.organization_id),
     getLicensedMachineCount(supabase, farm.organization_id),
   ]);

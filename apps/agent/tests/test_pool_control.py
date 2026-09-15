@@ -34,11 +34,31 @@ class PoolControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["success"])
         self.assertIn("Credenciais", result["message"])
 
-    async def test_reboot_antminer_uses_open_reboot_endpoint(self):
+    async def test_reboot_antminer_without_password_uses_open_endpoint(self):
         with patch.object(miners, "_http_post_status_sync", return_value=(200, b"")) as post:
             result = await miners.reboot_miner({"id": "1", "name": "S19", "ip": "192.168.1.10", "type": "antminer"})
         self.assertTrue(result["success"])
         post.assert_called_once_with("http://192.168.1.10/api/v1/reboot")
+
+    async def test_reboot_antminer_with_password_authenticates_first(self):
+        unlock_response = AsyncMock()
+        unlock_response.status_code = 200
+        unlock_response.json = lambda: {"token": "tok-abc"}
+        reboot_response = AsyncMock()
+        reboot_response.status_code = 200
+
+        fake_client = AsyncMock()
+        fake_client.post = AsyncMock(side_effect=[unlock_response, reboot_response])
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("miners.httpx.AsyncClient", return_value=fake_client):
+            result = await miners.reboot_miner({"id": "1", "name": "S19", "ip": "192.168.1.10", "type": "antminer"}, {"username": "admin", "password": "real-pass"})
+
+        self.assertTrue(result["success"])
+        self.assertIn("VNish autenticado", result["message"])
+        fake_client.post.assert_any_call("http://192.168.1.10/api/v1/unlock", json={"pw": "real-pass"})
+        fake_client.post.assert_any_call("http://192.168.1.10/api/v1/reboot", headers={"Authorization": "tok-abc"})
 
     async def test_reboot_whatsminer_reports_unsupported(self):
         result = await miners.reboot_miner({"id": "1", "name": "M30", "ip": "192.168.1.11", "type": "whatsminer"})

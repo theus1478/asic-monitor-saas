@@ -254,7 +254,7 @@ class Collector:
             if kind == "pool_update":
                 results = await asyncio.gather(*(apply_pool_config(m, m.get("credentials"), command.get("pools", [])) for m in miners))
             elif kind == "reboot":
-                results = await asyncio.gather(*(reboot_miner(m) for m in miners))
+                results = await asyncio.gather(*(reboot_miner(m, m.get("credentials")) for m in miners))
             else:
                 return
             report = await client.post(commands_url, headers=headers, json={"command_id": command["id"], "results": list(results)})

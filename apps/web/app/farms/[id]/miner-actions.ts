@@ -23,13 +23,24 @@ export async function deleteMiner(farmId: string, minerId: string) {
   revalidatePath(`/farms/${farmId}`);
 }
 
+const DEFAULT_CREDENTIALS: Record<string, { username: string; password: string }> = {
+  avalon: { username: "root", password: "root" },
+  antminer: { username: "admin", password: "admin" },
+  whatsminer: { username: "admin", password: "admin" },
+};
+
 export async function rebootMiner(farmId: string, minerId: string) {
   const { user, organizationId } = await requireFarmMembership(farmId);
   const service = createServiceClient();
-  const { data: agents } = await service.from("agents").select("id").eq("farm_id", farmId).order("last_seen_at", { ascending: false, nullsFirst: false }).limit(1);
+  const [{ data: agents }, { data: miner }] = await Promise.all([
+    service.from("agents").select("id").eq("farm_id", farmId).order("last_seen_at", { ascending: false, nullsFirst: false }).limit(1),
+    service.from("miners").select("type").eq("id", minerId).eq("farm_id", farmId).maybeSingle(),
+  ]);
   if (!agents?.length) return { ok: false, message: "Instale e configure um coletor antes de reiniciar máquinas." };
+  if (!miner) return { ok: false, message: "Máquina não encontrada." };
 
-  const encryptedPayload = encryptPoolCommand({ minerIds: [minerId] });
+  const credentials = DEFAULT_CREDENTIALS[miner.type] ?? DEFAULT_CREDENTIALS.antminer;
+  const encryptedPayload = encryptPoolCommand({ minerIds: [minerId], credentialsByMiner: { [minerId]: credentials } });
   const { error } = await service.from("pool_commands").insert({
     organization_id: organizationId,
     farm_id: farmId,
