@@ -86,3 +86,12 @@ página da máquina no painel. Cada fabricante usa um caminho diferente:
 Reboot costuma derrubar a conexão no meio do envio; uma queda logo após
 mandar o comando é tratada como sucesso provável, não como falha. Exige a
 versão 0.5.1 ou posterior do executável.
+
+## Tensão e corrente
+
+Só Avalon reporta tensão/corrente real (leitura `PS[]` do próprio firmware).
+Antminer (Bitmain/VNish) não expõe esse dado em nenhum endpoint — o coletor
+já chegou a inferir um valor sintético (230V nominal, corrente = potência /
+230V), mas isso não é telemetria real, e foi removido. Cards e histórico de
+Antminer não mostram tensão/corrente; só potência (`power_consumption`), que
+essa sim vem direto do firmware.
