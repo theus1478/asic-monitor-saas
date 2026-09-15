@@ -1,25 +1,34 @@
 # Coletor local
 
-Executável Windows único (`ASICMonitorAgent.exe`), sem instalador separado e
-sem exigir Python na máquina do cliente. Ele não abre portas para a internet:
-só conversa por HTTPS com a API Cloud. Além da telemetria, recebe comandos de
-troca de pool e os executa diretamente nas ASICs da rede local.
+Executável Windows único (`ASICMonitorAgent.exe`), com janela, sem instalador
+separado e sem exigir Python na máquina do cliente. Ele não abre portas para a
+internet: só conversa por HTTPS com a API Cloud. Além da telemetria, recebe
+comandos de troca de pool e de reinício e os executa diretamente nas ASICs da
+rede local.
 
-Na primeira execução, pede a URL da API e o token do agente (gerado no painel,
-em Fazendas → Gerar token do agente) — ou aceita via `--api-url`/`--agent-token`.
-Grava `config.json` ao lado do executável e se registra na pasta *Inicializar*
-do Windows (`shell:startup`) para rodar sozinho a cada login, sem precisar de
+Login próprio na primeira abertura (usuário/senha só desta máquina, em
+`local_auth.json`) — protege o app de quem não deveria mexer nas configurações
+de rede da fazenda. Depois do login, a janela principal deixa configurar a URL
+da API e o token do agente (gerados no painel, em Fazendas → Gerar token do
+agente), e cadastrar máquinas por IP manual ou escaneando a rede local (varre
+`prefixo.1` a `prefixo.254` nas portas 4028/80). Cada máquina adicionada ou
+removida na janela sincroniza na hora com o painel (`POST`/`DELETE
+/api/agent/config`); o app também some com qualquer máquina cadastrada por lá,
+então os dois lados ficam sempre iguais. Se registra na pasta *Inicializar* do
+Windows (`shell:startup`) para abrir sozinho a cada login, sem precisar de
 Tarefa Agendada nem de privilégio de administrador.
 
 ## Compilar o .exe
 
-Distribuído como binário, mas o código-fonte é `service.py` + `miners.py` neste
-diretório. Para gerar (ou regenerar) o executável:
+Distribuído como binário, mas o código-fonte é `gui_app.py` + `miners.py`
+neste diretório (`service.py` continua existindo como uma versão de linha de
+comando, sem janela, útil pra depurar sem abrir a interface). Para gerar (ou
+regenerar) o executável:
 
 ```powershell
 python -m pip install --user pyinstaller -r apps/agent/requirements.txt
 cd apps/agent/src
-python -m PyInstaller --onefile --console --name ASICMonitorAgent --clean service.py
+python -m PyInstaller --onefile --windowed --name ASICMonitorAgent --clean gui_app.py
 ```
 
 O resultado fica em `dist/ASICMonitorAgent.exe` — copie para

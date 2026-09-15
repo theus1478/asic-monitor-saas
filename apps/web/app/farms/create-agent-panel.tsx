@@ -10,12 +10,9 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
   const [name, setName] = useState("Coletor principal");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"url" | "token" | null>(null);
 
   const apiUrl = typeof window !== "undefined" ? `${window.location.origin}/api/agent/metrics` : "/api/agent/metrics";
-  const command = token
-    ? `ASICMonitorAgent.exe --api-url "${apiUrl}" --agent-token "${token}"`
-    : "";
 
   async function handleCreate() {
     setPending(true);
@@ -30,13 +27,13 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
     }
   }
 
-  async function copyCommand() {
+  async function copyValue(value: string, label: "url" | "token") {
     try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      setTimeout(() => setCopied(null), 2000);
     } catch {
-      // sem permissão de clipboard; o comando já está visível para cópia manual.
+      // sem permissão de clipboard; o valor já está visível para cópia manual.
     }
   }
 
@@ -55,10 +52,13 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
     {token ? (
       <div className="token-reveal">
         <p className="form-message warning"><b>Copie agora — este token não será mostrado novamente.</b></p>
+        <p className="muted">Abra o coletor no computador da fazenda, crie o acesso local (usuário/senha só dessa máquina) e, em &quot;Configurações da nuvem&quot;, cole:</p>
+        <p className="muted">URL da API</p>
+        <code className="token-code">{apiUrl}</code>
+        <button className="button secondary" type="button" onClick={() => copyValue(apiUrl, "url")}>{copied === "url" ? "Copiado!" : "Copiar URL"}</button>
+        <p className="muted">Token do agente</p>
         <code className="token-code">{token}</code>
-        <p className="muted">Abra o Prompt de Comando (cmd) na pasta onde salvou o executável e rode:</p>
-        <code className="cmd-block">{command}</code>
-        <button className="button secondary" type="button" onClick={copyCommand}>{copied ? "Copiado!" : "Copiar comando"}</button>
+        <button className="button secondary" type="button" onClick={() => copyValue(token, "token")}>{copied === "token" ? "Copiado!" : "Copiar token"}</button>
         <small className="muted">O Windows pode avisar &quot;Editor desconhecido&quot; (SmartScreen) por o executável não ser assinado — clique em &quot;Mais informações&quot; → &quot;Executar assim mesmo&quot;.</small>
       </div>
     ) : (
