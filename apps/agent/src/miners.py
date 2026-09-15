@@ -604,6 +604,23 @@ async def _reboot_antminer(ip, credentials):
     raise RuntimeError(f"HTTP {status} — confira a senha de acesso da ASIC.")
 
 
+async def _reboot_whatsminer(ip, port):
+    """BTMiner expoe 'reboot' como comando cgminer simples, sem exigir o canal
+    cifrado com senha admin (esse so e necessario pra mexer em pool/carteira).
+    E o mesmo caminho que ferramentas como o WhatsminerTool usam."""
+    try:
+        response = await api_call(ip, port, "reboot")
+    except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError, OSError) as e:
+        return f"conexão encerrada após envio (reboot provável): {e}"
+    status_list = _get_list(response, "STATUS")
+    entry = status_list[0] if status_list else {}
+    status_code = entry.get("STATUS")
+    message = entry.get("Msg") or str(response)[:200]
+    if status_code in ("S", "I") or not status_list:
+        return f"Comando 'reboot' aceito: {message}" if status_list else "Comando 'reboot' enviado."
+    raise RuntimeError(f"BTMiner recusou o reboot: {message}")
+
+
 async def reboot_miner(miner, credentials=None):
     """Reinicia a maquina. Comando varia por fabricante.
 
@@ -611,9 +628,9 @@ async def reboot_miner(miner, credentials=None):
       com o token recebido (mesmo fluxo da troca de pool). Sem senha, tenta sem
       autenticacao (funciona em alguns firmwares Bitmain padrao).
     - Avalon (cgminer): comando socket 'restart' na porta 4028, sem autenticacao.
-    - Whatsminer (BixBit): a API de escrita exige senha admin valida e token
-      cifrado; o comando exato de reboot nao esta documentado/confirmado contra
-      hardware real, entao nao implementamos as cegas - fica como nao suportado.
+    - Whatsminer (BixBit): comando socket 'reboot' na porta 4028, sem autenticacao
+      (mesma familia cgminer do Avalon) - trocar pool e diferente porque mexe na
+      carteira de pagamento, por isso exige o canal cifrado com senha.
 
     Reboot derruba a conexao no meio: uma queda logo apos enviar normalmente
     significa que o comando foi aceito, entao tratamos isso como sucesso provavel.
@@ -635,7 +652,8 @@ async def reboot_miner(miner, credentials=None):
             except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError, OSError) as e:
                 result.update(success=True, message=f"conexão encerrada após envio (reboot provável): {e}")
         elif mtype == "whatsminer":
-            result["message"] = "Whatsminer: comando de reinício via API de escrita ainda não confirmado contra hardware real — não suportado por segurança."
+            message = await _reboot_whatsminer(ip, port)
+            result.update(success=True, message=message)
         else:
             result["message"] = f"Fabricante sem suporte: {mtype}"
     except Exception as error:

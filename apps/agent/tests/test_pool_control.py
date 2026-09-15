@@ -60,10 +60,26 @@ class PoolControlTests(unittest.IsolatedAsyncioTestCase):
         fake_client.post.assert_any_call("http://192.168.1.10/api/v1/unlock", json={"pw": "real-pass"})
         fake_client.post.assert_any_call("http://192.168.1.10/api/v1/reboot", headers={"Authorization": "tok-abc"})
 
-    async def test_reboot_whatsminer_reports_unsupported(self):
-        result = await miners.reboot_miner({"id": "1", "name": "M30", "ip": "192.168.1.11", "type": "whatsminer"})
+    async def test_reboot_whatsminer_sends_plain_cgminer_command(self):
+        response = {"STATUS": [{"STATUS": "S", "Msg": "restart flag set"}]}
+        with patch.object(miners, "api_call", new=AsyncMock(return_value=response)) as call:
+            result = await miners.reboot_miner({"id": "1", "name": "M30", "ip": "192.168.1.11", "port": 4028, "type": "whatsminer"})
+        self.assertTrue(result["success"])
+        self.assertIn("restart flag set", result["message"])
+        call.assert_awaited_once_with("192.168.1.11", 4028, "reboot")
+
+    async def test_reboot_whatsminer_treats_dropped_connection_as_likely_success(self):
+        with patch.object(miners, "api_call", new=AsyncMock(side_effect=ConnectionResetError("reset"))):
+            result = await miners.reboot_miner({"id": "1", "name": "M30", "ip": "192.168.1.11", "type": "whatsminer"})
+        self.assertTrue(result["success"])
+        self.assertIn("provável", result["message"])
+
+    async def test_reboot_whatsminer_reports_device_rejection(self):
+        response = {"STATUS": [{"STATUS": "E", "Msg": "unknown command"}]}
+        with patch.object(miners, "api_call", new=AsyncMock(return_value=response)):
+            result = await miners.reboot_miner({"id": "1", "name": "M30", "ip": "192.168.1.11", "type": "whatsminer"})
         self.assertFalse(result["success"])
-        self.assertIn("não suportado", result["message"])
+        self.assertIn("unknown command", result["message"])
 
 
 if __name__ == "__main__":

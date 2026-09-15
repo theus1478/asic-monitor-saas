@@ -6,17 +6,18 @@ internet: só conversa por HTTPS com a API Cloud. Além da telemetria, recebe
 comandos de troca de pool e de reinício e os executa diretamente nas ASICs da
 rede local.
 
-Login próprio na primeira abertura (usuário/senha só desta máquina, em
-`local_auth.json`) — protege o app de quem não deveria mexer nas configurações
-de rede da fazenda. Depois do login, a janela principal deixa configurar a URL
-da API e o token do agente (gerados no painel, em Fazendas → Gerar token do
-agente), e cadastrar máquinas por IP manual ou escaneando a rede local (varre
-`prefixo.1` a `prefixo.254` nas portas 4028/80). Cada máquina adicionada ou
-removida na janela sincroniza na hora com o painel (`POST`/`DELETE
-/api/agent/config`); o app também some com qualquer máquina cadastrada por lá,
-então os dois lados ficam sempre iguais. Se registra na pasta *Inicializar* do
-Windows (`shell:startup`) para abrir sozinho a cada login, sem precisar de
-Tarefa Agendada nem de privilégio de administrador.
+Pede a URL da API e o token do agente (gerados no painel, em Fazendas →
+Gerar token do agente) toda vez que abre — valida contra a nuvem antes de
+entrar e mostra o nome da fazenda e quantas licenças estão em uso (os
+últimos valores digitados ficam salvos em `last_login.json` só como
+atalho, mas sempre revalida). Depois de entrar, cadastra máquinas por IP
+manual ou escaneando uma faixa de IP (você escolhe início e fim; confirma
+o protocolo real de cada dispositivo, não só a porta aberta). Cada máquina
+adicionada ou removida sincroniza na hora com o painel (`POST`/`DELETE
+/api/agent/config`); o app também some com qualquer máquina cadastrada por
+lá, então os dois lados ficam sempre iguais. Se registra na pasta
+*Inicializar* do Windows (`shell:startup`) para abrir sozinho a cada
+login, sem precisar de Tarefa Agendada nem de privilégio de administrador.
 
 ## Compilar o .exe
 
@@ -60,5 +61,28 @@ O painel cria um comando cifrado e o associa ao coletor da fazenda. A cada
 ciclo, o agente consulta `GET /api/agent/commands`, aplica até três pools nas
 máquinas escolhidas e envia o resultado por máquina ao mesmo endpoint. Há
 suporte para Antminer com firmware Bitmain ou VNish, Avalon e Whatsminer API
-v2/v3. Para usar esse recurso é necessário instalar a versão 0.3.0 ou posterior
-do executável.
+v2/v3 — exige a senha real de acesso da máquina (o painel manda `admin`/`admin`
+ou `root`/`root` por padrão; se a ASIC tiver senha própria, tem que trocar pra
+credenciais personalizadas na hora de criar o comando, senão ela recusa com
+"no permission for write command"). Para usar esse recurso é necessário
+instalar a versão 0.3.0 ou posterior do executável.
+
+## Reiniciar máquina
+
+Mesma fila de comandos da troca de pool (`kind: "reboot"`), um clique na
+página da máquina no painel. Cada fabricante usa um caminho diferente:
+
+- **Antminer (VNish)**: autentica em `/api/v1/unlock` com a senha (mesmo fluxo
+  da troca de pool) e reinicia com o token recebido. Sem senha configurada,
+  tenta sem autenticação — funciona em firmware Bitmain padrão sem VNish.
+- **Avalon**: comando `restart` puro no socket cgminer (porta 4028), sem
+  autenticação.
+- **Whatsminer**: comando `reboot` puro no socket cgminer (porta 4028), sem
+  autenticação — BTMiner trata reboot como ação de baixo risco, diferente de
+  trocar pool (que mexe na carteira de pagamento e por isso exige o canal
+  cifrado com senha). Mesmo caminho que ferramentas como o WhatsminerTool
+  usam.
+
+Reboot costuma derrubar a conexão no meio do envio; uma queda logo após
+mandar o comando é tratada como sucesso provável, não como falha. Exige a
+versão 0.5.1 ou posterior do executável.

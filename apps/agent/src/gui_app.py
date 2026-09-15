@@ -29,7 +29,7 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner
 
-AGENT_VERSION = "0.5.0"
+AGENT_VERSION = "0.5.1"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
