@@ -57,7 +57,8 @@
     "confirmNotRobot": "Confirma que no eres un robot.",
     "invalidCredentials": "Correo o contraseña inválidos",
     "invalidEmailPassword": "Usa un correo válido y una contraseña de al menos 8 caracteres",
-    "signupReceived": "Registro recibido. Revisa tu correo para activar la cuenta."
+    "signupReceived": "Registro recibido. Revisa tu correo para activar la cuenta.",
+    "emailAlreadyRegistered": "Este correo ya está registrado. Intenta iniciar sesión."
   },
   "dashboard": {
     "title": "Resumen",

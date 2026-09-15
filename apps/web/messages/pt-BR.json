@@ -57,7 +57,8 @@
     "confirmNotRobot": "Confirme que você não é um robô.",
     "invalidCredentials": "E-mail ou senha inválidos",
     "invalidEmailPassword": "Use um e-mail válido e uma senha com pelo menos 8 caracteres",
-    "signupReceived": "Cadastro recebido. Verifique seu e-mail para ativar a conta."
+    "signupReceived": "Cadastro recebido. Verifique seu e-mail para ativar a conta.",
+    "emailAlreadyRegistered": "Este e-mail já está cadastrado. Tente entrar na sua conta."
   },
   "dashboard": {
     "title": "Visão geral",

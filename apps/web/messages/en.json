@@ -57,7 +57,8 @@
     "confirmNotRobot": "Confirm you are not a robot.",
     "invalidCredentials": "Invalid email or password",
     "invalidEmailPassword": "Use a valid email and a password with at least 8 characters",
-    "signupReceived": "Sign-up received. Check your email to activate the account."
+    "signupReceived": "Sign-up received. Check your email to activate the account.",
+    "emailAlreadyRegistered": "This email is already registered. Try signing in instead."
   },
   "dashboard": {
     "title": "Overview",

@@ -57,7 +57,8 @@
     "confirmNotRobot": "Potwierdź, że nie jesteś robotem.",
     "invalidCredentials": "Nieprawidłowy e-mail lub hasło",
     "invalidEmailPassword": "Użyj prawidłowego e-maila i hasła o długości co najmniej 8 znaków",
-    "signupReceived": "Rejestracja przyjęta. Sprawdź e-mail, aby aktywować konto."
+    "signupReceived": "Rejestracja przyjęta. Sprawdź e-mail, aby aktywować konto.",
+    "emailAlreadyRegistered": "Ten e-mail jest już zarejestrowany. Spróbuj się zalogować."
   },
   "dashboard": {
     "title": "Przegląd",

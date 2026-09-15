@@ -44,13 +44,19 @@ export async function signUp(formData: FormData) {
 
   const supabase = await createClient();
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: { data: { full_name: fullName }, emailRedirectTo: `${appUrl}/auth/callback`, captchaToken },
   });
 
   if (error) redirect(`/sign-in?mode=signup&error=${encodeURIComponent(error.message)}`);
+  // Supabase returns a fake success (no error) for an email that is already registered and
+  // confirmed, to avoid leaking which addresses exist. It signals this with an empty
+  // identities array instead — no email is actually sent in that case.
+  if (data.user && data.user.identities?.length === 0) {
+    redirect(`/sign-in?mode=signup&error=${encodeURIComponent(t("emailAlreadyRegistered"))}`);
+  }
   redirect(`/sign-in?message=${encodeURIComponent(t("signupReceived"))}`);
 }
 
