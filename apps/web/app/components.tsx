@@ -1,9 +1,12 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { signOut } from "./auth/actions";
+import { isPlatformAdmin } from "../lib/org-data";
 import { SidebarNav } from "./sidebar-nav";
 import { SiteLogo } from "./site-logo";
 
-export function Shell({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
+export async function Shell({ children, admin = false }: { children: ReactNode; admin?: boolean }) {
+  const showAdminShortcut = !admin && await isPlatformAdmin();
   return <div className="app-shell">
     <aside className="sidebar">
       <SiteLogo />
@@ -11,7 +14,10 @@ export function Shell({ children, admin = false }: { children: ReactNode; admin?
       <SidebarNav admin={admin} />
       <div className="sidebar-bottom"><form action={signOut}><button className="logout-button" type="submit">Sair da conta</button></form><small>v0.2 · Solana USDT</small></div>
     </aside>
-    <main className="main">{children}</main>
+    <main className="main">
+      {showAdminShortcut && <Link href="/admin" className="admin-shortcut">⚙ Painel admin</Link>}
+      {children}
+    </main>
   </div>;
 }
 

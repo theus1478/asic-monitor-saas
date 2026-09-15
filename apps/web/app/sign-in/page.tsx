@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { signIn, signUp } from "../auth/actions";
 import { SiteLogo } from "../site-logo";
+import { TurnstileWidget } from "../turnstile-widget";
 
 type Props = { searchParams: Promise<{ mode?: string; error?: string; message?: string; next?: string }> };
 
@@ -19,10 +20,9 @@ export default async function SignInPage({ searchParams }: Props) {
         <label>E-mail<input name="email" type="email" autoComplete="email" required placeholder="voce@empresa.com" /></label>
         <label>Senha<input name="password" type="password" minLength={8} autoComplete={isSignUp ? "new-password" : "current-password"} required placeholder="Mínimo de 8 caracteres" /></label>
         {!isSignUp && <input type="hidden" name="next" value={params.next ?? "/dashboard"} />}
-        {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && <div className="cf-turnstile" data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} data-theme="dark" />}
+        {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && <TurnstileWidget siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />}
         <button className="button auth-submit" type="submit">{isSignUp ? "Criar conta" : "Entrar"}</button>
       </form>
-      {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />}
       <p className="auth-switch">{isSignUp ? "Já possui uma conta?" : "Ainda não possui uma conta?"} <Link href={isSignUp ? "/sign-in" : "/sign-in?mode=signup"}>{isSignUp ? "Entrar" : "Criar conta"}</Link></p>
     </section>
   </main>;
