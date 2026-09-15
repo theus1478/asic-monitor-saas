@@ -21,7 +21,7 @@ export default async function SignInPage({ searchParams }: Props) {
       {params.message && <div className="form-message success">{params.message}</div>}
       <form action={isSignUp ? signUp : signIn} className="auth-form">
         {isSignUp && <label>{t("fullName")}<input name="fullName" autoComplete="name" required placeholder={t("fullNamePlaceholder")} /></label>}
-        <label>{t("email")}<input name="email" type="email" autoComplete="email" required placeholder={t("emailPlaceholder")} /></label>
+        <label>{t("email")}<input name="email" type="email" autoComplete={isSignUp ? "off" : "email"} required placeholder={t("emailPlaceholder")} /></label>
         <label>{t("password")}<input name="password" type="password" minLength={8} autoComplete={isSignUp ? "new-password" : "current-password"} required placeholder={t("passwordPlaceholder")} /></label>
         {!isSignUp && <input type="hidden" name="next" value={params.next ?? "/dashboard"} />}
         {process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY && <TurnstileWidget siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY} />}
