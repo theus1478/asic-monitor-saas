@@ -527,7 +527,7 @@ async def _set_antminer_pools(ip, credentials, pools):
             unlocked = await client.post(f"http://{ip}/api/v1/unlock", json={"pw": password})
             if unlocked.status_code == 200 and unlocked.json().get("token"):
                 token = unlocked.json()["token"]
-                response = await client.post(f"http://{ip}/api/v1/settings", headers={"Authorization": token}, json={"miner": {"pools": normalized}})
+                response = await client.post(f"http://{ip}/api/v1/settings", headers={"Authorization": f"Bearer {token}"}, json={"miner": {"pools": normalized}})
                 response.raise_for_status()
                 return "Pool alterada via API VNish."
     except Exception:
@@ -634,8 +634,9 @@ def _http_post_status_sync(url, timeout=HTTP_TIMEOUT):
 
 
 async def _reboot_antminer(ip, credentials):
-    """VNish exige o mesmo token de /api/v1/unlock usado pra trocar pool -
-    reboot sem autenticacao (o que a versao anterior fazia) volta HTTP 405."""
+    """Confirmado via captura de rede da propria interface do VNish: o endpoint
+    e /api/v1/system/reboot (nao /api/v1/reboot) e o header e "Bearer <token>"
+    (nao so o token cru) - as duas coisas que a versao anterior errava."""
     password = (credentials or {}).get("password")
     if password:
         try:
@@ -643,14 +644,14 @@ async def _reboot_antminer(ip, credentials):
                 unlocked = await client.post(f"http://{ip}/api/v1/unlock", json={"pw": password})
                 if unlocked.status_code == 200 and unlocked.json().get("token"):
                     token = unlocked.json()["token"]
-                    response = await client.post(f"http://{ip}/api/v1/reboot", headers={"Authorization": token})
+                    response = await client.post(f"http://{ip}/api/v1/system/reboot", headers={"Authorization": f"Bearer {token}"})
                     if response.status_code in (200, 201, 202, 204):
                         return f"HTTP {response.status_code} (VNish autenticado)."
                     raise RuntimeError(f"VNish recusou o reboot autenticado (HTTP {response.status_code}).")
         except httpx.HTTPError as error:
             raise RuntimeError(f"Falha ao autenticar no VNish: {error}") from error
     # Firmware Bitmain padrao (nao-VNish) as vezes aceita sem autenticacao.
-    status, _ = await asyncio.to_thread(lambda: _http_post_status_sync(f"http://{ip}/api/v1/reboot"))
+    status, _ = await asyncio.to_thread(lambda: _http_post_status_sync(f"http://{ip}/api/v1/system/reboot"))
     if status in (200, 201, 202, 204):
         return f"HTTP {status}"
     raise RuntimeError(f"HTTP {status} — confira a senha de acesso da ASIC.")

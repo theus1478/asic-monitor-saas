@@ -38,7 +38,7 @@ class PoolControlTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(miners, "_http_post_status_sync", return_value=(200, b"")) as post:
             result = await miners.reboot_miner({"id": "1", "name": "S19", "ip": "192.168.1.10", "type": "antminer"})
         self.assertTrue(result["success"])
-        post.assert_called_once_with("http://192.168.1.10/api/v1/reboot")
+        post.assert_called_once_with("http://192.168.1.10/api/v1/system/reboot")
 
     async def test_reboot_antminer_with_password_authenticates_first(self):
         unlock_response = AsyncMock()
@@ -58,7 +58,7 @@ class PoolControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["success"])
         self.assertIn("VNish autenticado", result["message"])
         fake_client.post.assert_any_call("http://192.168.1.10/api/v1/unlock", json={"pw": "real-pass"})
-        fake_client.post.assert_any_call("http://192.168.1.10/api/v1/reboot", headers={"Authorization": "tok-abc"})
+        fake_client.post.assert_any_call("http://192.168.1.10/api/v1/system/reboot", headers={"Authorization": "Bearer tok-abc"})
 
     async def test_reboot_whatsminer_sends_plain_cgminer_command(self):
         response = {"STATUS": [{"STATUS": "S", "Msg": "restart flag set"}]}
