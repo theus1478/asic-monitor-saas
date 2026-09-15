@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from miners import apply_pool_config, poll_miner
+from miners import apply_pool_config, poll_miner, reboot_miner
 
 AGENT_VERSION = "0.3.0"
 
@@ -136,24 +136,36 @@ async def fetch_remote_miners(client: httpx.AsyncClient, config_url: str, header
         return None
 
 
-async def process_pool_command(client: httpx.AsyncClient, commands_url: str, headers: dict):
+async def process_command(client: httpx.AsyncClient, commands_url: str, headers: dict):
     try:
         response = await client.get(commands_url, headers=headers)
         response.raise_for_status()
         command = response.json().get("command")
-        if not command or command.get("kind") != "pool_update":
+        if not command:
             return
-        print(f"Aplicando troca de pool em {len(command.get('miners', []))} maquina(s)...", flush=True)
-        results = await asyncio.gather(*(
-            apply_pool_config(miner, miner.get("credentials"), command.get("pools", []))
-            for miner in command.get("miners", [])
-        ))
+        kind = command.get("kind")
+        miners = command.get("miners", [])
+
+        if kind == "pool_update":
+            print(f"Aplicando troca de pool em {len(miners)} maquina(s)...", flush=True)
+            results = await asyncio.gather(*(
+                apply_pool_config(miner, miner.get("credentials"), command.get("pools", []))
+                for miner in miners
+            ))
+            label = "Troca de pool"
+        elif kind == "reboot":
+            print(f"Reiniciando {len(miners)} maquina(s)...", flush=True)
+            results = await asyncio.gather(*(reboot_miner(miner) for miner in miners))
+            label = "Reinício"
+        else:
+            return
+
         report = await client.post(commands_url, headers=headers, json={"command_id": command["id"], "results": list(results)})
         report.raise_for_status()
         ok = sum(1 for item in results if item.get("success"))
-        print(f"Troca de pool finalizada: {ok}/{len(results)} com sucesso.", flush=True)
+        print(f"{label} finalizado: {ok}/{len(results)} com sucesso.", flush=True)
     except Exception as error:
-        print(f"Falha ao processar comando de pool: {error}", flush=True)
+        print(f"Falha ao processar comando: {error}", flush=True)
 
 
 async def run(config: dict) -> None:
@@ -172,7 +184,7 @@ async def run(config: dict) -> None:
             if remote_miners is not None:
                 known_miners = remote_miners
 
-            await process_pool_command(client, commands_url, headers)
+            await process_command(client, commands_url, headers)
 
             metrics = await asyncio.gather(*(poll_miner(m) for m in known_miners))
             payload = {"observed_at": datetime.now(timezone.utc).isoformat(), "metrics": list(metrics)}

@@ -2,10 +2,18 @@ import { PageHeader, Shell } from "../components";
 import { requirePlatformAdmin } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
 import { monthlyPriceCents } from "../../lib/pricing";
+import { updateApiNinjasKey } from "./settings-actions";
+
+function maskKey(key: string | null) {
+  if (!key) return null;
+  return key.length > 8 ? `${key.slice(0, 4)}…${key.slice(-4)}` : "…";
+}
 
 export default async function AdminPage() {
   await requirePlatformAdmin();
   const supabase = createServiceClient();
+  const { data: settings } = await supabase.from("platform_settings").select("api_ninjas_key").eq("id", true).maybeSingle();
+  const maskedKey = maskKey(settings?.api_ninjas_key ?? null);
 
   const { data: organizations } = await supabase
     .from("organizations")
@@ -72,6 +80,15 @@ export default async function AdminPage() {
     <section id="licencas" className="card">
       <h2>Licenciamento</h2>
       <p className="muted">Cada máquina cadastrada conta para a licença da organização. A régua de desconto progressivo é a mesma usada na calculadora de cobrança do cliente.</p>
+    </section>
+    <section id="api-ninjas" className="card setup">
+      <p className="eyebrow">COTAÇÃO DE BTC</p>
+      <h2>Chave da API-Ninjas</h2>
+      <p className="muted">Usada na aba Rendimento de todos os clientes para buscar a cotação do BTC automaticamente (com CoinGecko como reserva, sem gastar cota). {maskedKey ? <>Chave atual: <b>{maskedKey}</b>.</> : "Nenhuma chave cadastrada — a cotação em USD/USDT cai para o CoinGecko."}</p>
+      <form action={updateApiNinjasKey} className="inline-form">
+        <input name="api_ninjas_key" placeholder="Chave da api-ninjas.com" autoComplete="off" />
+        <button className="button secondary" type="submit">Salvar chave</button>
+      </form>
     </section>
   </Shell>;
 }

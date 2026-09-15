@@ -4,6 +4,7 @@ import { currentTimeMs } from "../../../lib/time";
 import { addMiner } from "../actions";
 import { CreateAgentPanel } from "../create-agent-panel";
 import { LegacyMonitor, type MonitorMiner } from "./legacy-monitor";
+import { deleteMiner, rebootMiner } from "./miner-actions";
 import type { PoolCommandSummary } from "./pool-control";
 
 type Miner = { id: string; name: string; ip: string; protocol_port: number; type: string; enabled: boolean };
@@ -41,5 +42,5 @@ export default async function FarmDetailPage({ params }: { params: Promise<{ id:
   });
   const history = [...buckets].map(([observedAt, values]) => ({ observedAt, ...values })).slice(-144);
   const agentList = (agents ?? []).map((agent) => ({ ...agent, is_online: Boolean(agent.last_seen_at && now - new Date(agent.last_seen_at).getTime() <= FRESH_METRIC_MS) }));
-  return <LegacyMonitor farmId={farm.id} farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} poolCommands={(poolCommands ?? []) as PoolCommandSummary[]} addMinerAction={addMiner.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
+  return <LegacyMonitor farmId={farm.id} farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} poolCommands={(poolCommands ?? []) as PoolCommandSummary[]} addMinerAction={addMiner.bind(null, id)} deleteMinerAction={deleteMiner.bind(null, id)} rebootMinerAction={rebootMiner.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
 }

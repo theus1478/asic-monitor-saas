@@ -93,7 +93,14 @@ export default async function DashboardPage() {
 
   const chartPoints = (() => {
     if (series.length < 2) return null;
-    const values = series.map(([, v]) => v);
+    const raw = series.map(([, v]) => v);
+    // Média móvel: oscilações de um ciclo pra outro são normais (arredondamento
+    // do firmware, latência de varredura) e não devem parecer quedas reais.
+    const window = 3;
+    const values = raw.length <= window ? raw : raw.map((_, i) => {
+      const slice = raw.slice(Math.max(0, i - window + 1), i + 1);
+      return slice.reduce((sum, v) => sum + v, 0) / slice.length;
+    });
     const max = Math.max(...values, 0.001);
     const min = Math.min(...values, 0);
     const range = max - min || 1;

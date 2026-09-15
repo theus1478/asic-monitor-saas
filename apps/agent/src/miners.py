@@ -15,6 +15,7 @@ import json
 import re
 import struct
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
@@ -569,6 +570,51 @@ async def _set_whatsminer_pools(ip, port, credentials, pools):
     except Exception as error:
         errors.append(f"v2: {error}")
     raise RuntimeError("; ".join(errors))
+
+
+def _http_post_status_sync(url, timeout=HTTP_TIMEOUT):
+    req = urllib.request.Request(url, method="POST", headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+async def reboot_miner(miner):
+    """Reinicia a maquina. Comando varia por fabricante.
+
+    - Antminer (Vnish/Bitmain): POST no endpoint de reboot da mesma API aberta do summary.
+    - Avalon (cgminer): comando socket 'restart' na porta 4028.
+    - Whatsminer (BixBit): exige token + comando cifrado com a senha admin -
+      nao suportado sem credenciais (mesma limitacao do projeto anterior).
+
+    Reboot derruba a conexao no meio: uma queda logo apos enviar normalmente
+    significa que o comando foi aceito, entao tratamos isso como sucesso provavel.
+    """
+    ip = miner.get("ip")
+    port = int(miner.get("port") or miner.get("protocol_port") or 4028)
+    mtype = str(miner.get("type", "antminer")).lower()
+    name = miner.get("name") or ip
+    result = {"miner_id": miner.get("id"), "name": name, "success": False, "message": ""}
+
+    try:
+        if mtype == "antminer":
+            status, _ = await asyncio.to_thread(lambda: _http_post_status_sync(f"http://{ip}/api/v1/reboot"))
+            result.update(success=status in (200, 201, 202, 204), message=f"HTTP {status}")
+        elif mtype == "avalon":
+            try:
+                await api_call(ip, port, "restart")
+                result.update(success=True, message="comando 'restart' enviado")
+            except (asyncio.IncompleteReadError, ConnectionResetError, asyncio.TimeoutError, OSError) as e:
+                result.update(success=True, message=f"conexão encerrada após envio (reboot provável): {e}")
+        elif mtype == "whatsminer":
+            result["message"] = "Whatsminer exige senha admin + token (API de escrita BixBit) — não suportado."
+        else:
+            result["message"] = f"Fabricante sem suporte: {mtype}"
+    except Exception as error:
+        result["message"] = str(error)[:500]
+    return result
 
 
 async def apply_pool_config(miner, credentials, pools):

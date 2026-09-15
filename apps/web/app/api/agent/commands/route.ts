@@ -4,11 +4,12 @@ import { createServiceClient } from "../../../../lib/supabase/service";
 
 export const runtime = "nodejs";
 
-type CommandPayload = {
+type PoolCommandPayload = {
   minerIds: string[];
   pools: { url: string; worker: string; password: string }[];
   credentialsByMiner: Record<string, { username: string; password: string }>;
 };
+type RebootCommandPayload = { minerIds: string[] };
 
 async function authenticate(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
@@ -29,13 +30,18 @@ export async function GET(request: Request) {
   await service.from("pool_commands").update({ status: "expired", completed_at: now }).eq("agent_id", agent.id).in("status", ["pending", "processing"]).lt("expires_at", now);
   await service.from("pool_commands").update({ status: "pending", claimed_at: null }).eq("agent_id", agent.id).eq("status", "processing").lt("claimed_at", stale).gt("expires_at", now);
 
-  const { data: command } = await service.from("pool_commands").select("id, encrypted_payload").eq("agent_id", agent.id).eq("status", "pending").gt("expires_at", now).order("created_at").limit(1).maybeSingle();
+  const { data: command } = await service.from("pool_commands").select("id, kind, encrypted_payload").eq("agent_id", agent.id).eq("status", "pending").gt("expires_at", now).order("created_at").limit(1).maybeSingle();
   if (!command) return Response.json({ command: null });
-  const { data: claimed } = await service.from("pool_commands").update({ status: "processing", claimed_at: now }).eq("id", command.id).eq("status", "pending").select("id, encrypted_payload").maybeSingle();
+  const { data: claimed } = await service.from("pool_commands").update({ status: "processing", claimed_at: now }).eq("id", command.id).eq("status", "pending").select("id, kind, encrypted_payload").maybeSingle();
   if (!claimed) return Response.json({ command: null });
 
   try {
-    const payload = decryptPoolCommand<CommandPayload>(claimed.encrypted_payload);
+    if (claimed.kind === "reboot") {
+      const payload = decryptPoolCommand<RebootCommandPayload>(claimed.encrypted_payload);
+      const { data: miners } = await service.from("miners").select("id, name, ip, protocol_port, type").eq("farm_id", agent.farm_id).in("id", payload.minerIds);
+      return Response.json({ command: { id: claimed.id, kind: "reboot", miners: (miners ?? []).map((miner) => ({ ...miner, port: miner.protocol_port })) } });
+    }
+    const payload = decryptPoolCommand<PoolCommandPayload>(claimed.encrypted_payload);
     const { data: miners } = await service.from("miners").select("id, name, ip, protocol_port, type").eq("farm_id", agent.farm_id).in("id", payload.minerIds);
     return Response.json({ command: { id: claimed.id, kind: "pool_update", pools: payload.pools, miners: (miners ?? []).map((miner) => ({ ...miner, port: miner.protocol_port, credentials: payload.credentialsByMiner[miner.id] })) } });
   } catch (error) {
