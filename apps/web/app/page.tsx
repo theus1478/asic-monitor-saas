@@ -34,14 +34,8 @@ export default function Home() {
         <li><b>04</b>Acompanhe hash rate e alertas em tempo real.</li>
       </ol>
     </section>
-    <section className="landing-section">
-      <h2>Cobrança transparente</h2>
-      <p>US$ 3,00 por máquina ativa/mês, com desconto progressivo a partir da 15ª máquina. Pagamento em USDT na rede Solana, com confirmação automática na blockchain — sem depender de exchange.</p>
-      <Link className="text-link" href="/sign-in?mode=signup">Ver a calculadora de licença →</Link>
-    </section>
     <footer className="footer">
       <SiteLogo href="/" compact />
-      <span>Pagamentos em USDT · Rede Solana</span>
     </footer>
   </main>;
 }

@@ -12,7 +12,7 @@ export async function Shell({ children, admin = false }: { children: ReactNode; 
       <SiteLogo />
       <p className="workspace">{admin ? "ADMINISTRAÇÃO" : "PAINEL DA OPERAÇÃO"}</p>
       <SidebarNav admin={admin} />
-      <div className="sidebar-bottom"><form action={signOut}><button className="logout-button" type="submit">Sair da conta</button></form><small>v0.2 · Solana USDT</small></div>
+      <div className="sidebar-bottom"><form action={signOut}><button className="logout-button" type="submit">Sair da conta</button></form><small>v0.2</small></div>
     </aside>
     <main className="main">
       {showAdminShortcut && <Link href="/admin" className="admin-shortcut">⚙ Painel admin</Link>}
