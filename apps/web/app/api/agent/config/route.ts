@@ -1,4 +1,5 @@
 import { hashAgentToken } from "../../../../lib/agent-token";
+import { getLicensedMachineCount, markLicensed } from "../../../../lib/license";
 import { createServiceClient } from "../../../../lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -11,24 +12,38 @@ async function authenticate(request: Request) {
   if (!token) return null;
   const service = createServiceClient();
   const { data: agent } = await service.from("agents").select("id, farm_id").eq("token_hash", hashAgentToken(token)).maybeSingle();
-  return agent ? { service, agent } : null;
+  if (!agent) return null;
+  const { data: farm } = await service.from("farms").select("id, name, organization_id").eq("id", agent.farm_id).maybeSingle();
+  if (!farm) return null;
+  return { service, agent, farm };
+}
+
+/** Monta a resposta com as máquinas da fazenda, marcando quais estão cobertas pela licença da organização. */
+async function buildConfigResponse(service: ReturnType<typeof createServiceClient>, farm: { id: string; name: string; organization_id: string }) {
+  const { data: orgFarms } = await service.from("farms").select("id").eq("organization_id", farm.organization_id);
+  const orgFarmIds = (orgFarms ?? []).map((f) => f.id);
+  const [{ data: orgMiners }, licensedCount] = await Promise.all([
+    service.from("miners").select("id, farm_id, name, ip, protocol_port, type, created_at").eq("enabled", true).in("farm_id", orgFarmIds.length ? orgFarmIds : [farm.id]),
+    getLicensedMachineCount(service, farm.organization_id),
+  ]);
+  const all = orgMiners ?? [];
+  const licensedById = markLicensed(all, licensedCount);
+  const farmMiners = all.filter((m) => m.farm_id === farm.id);
+
+  return {
+    miners: farmMiners.map((m) => ({ id: m.id, name: m.name, ip: m.ip, port: m.protocol_port, type: m.type, licensed: licensedById.get(m.id) ?? false })),
+    poll_interval_seconds: 30,
+    farm_name: farm.name,
+    licensed_machines: licensedCount,
+    used_machines: all.length,
+  };
 }
 
 export async function GET(request: Request) {
   let auth;
   try { auth = await authenticate(request); } catch { return Response.json({ error: "Supabase não configurado no servidor." }, { status: 503 }); }
   if (!auth) return Response.json({ error: "Token inválido." }, { status: 401 });
-
-  const { data: miners } = await auth.service
-    .from("miners")
-    .select("id, name, ip, protocol_port, type")
-    .eq("farm_id", auth.agent.farm_id)
-    .eq("enabled", true);
-
-  return Response.json({
-    miners: (miners ?? []).map((m) => ({ id: m.id, name: m.name, ip: m.ip, port: m.protocol_port, type: m.type })),
-    poll_interval_seconds: 30,
-  });
+  return Response.json(await buildConfigResponse(auth.service, auth.farm));
 }
 
 type MinerInput = { name?: unknown; ip?: unknown; port?: unknown; type?: unknown };
@@ -42,7 +57,12 @@ function cleanMiner(raw: MinerInput) {
   return ip ? { name, ip, port, type } : null;
 }
 
-/** O app local registra (upsert por IP) as máquinas que encontrou por scan ou cadastro manual. */
+/**
+ * O app local registra (upsert por IP) as máquinas que encontrou por scan ou
+ * cadastro manual. Sempre aceita, mesmo sem licença disponível — a máquina
+ * cadastrada além da licença aparece marcada como "licensed: false" e o
+ * painel web mostra o aviso, sem exibir telemetria, até o cliente comprar.
+ */
 export async function POST(request: Request) {
   let auth;
   try { auth = await authenticate(request); } catch { return Response.json({ error: "Supabase não configurado no servidor." }, { status: 503 }); }
@@ -52,10 +72,10 @@ export async function POST(request: Request) {
   const inputs = (Array.isArray(body?.miners) ? body.miners : []).slice(0, 200).map(cleanMiner).filter((m): m is NonNullable<typeof m> => m !== null);
   if (!inputs.length) return Response.json({ error: "Nenhuma máquina válida enviada." }, { status: 400 });
 
-  const { data: existing } = await auth.service.from("miners").select("id, ip").eq("farm_id", auth.agent.farm_id);
+  const { data: existing } = await auth.service.from("miners").select("id, ip").eq("farm_id", auth.farm.id);
   const byIp = new Map((existing ?? []).map((m) => [m.ip, m.id]));
 
-  const toInsert = inputs.filter((m) => !byIp.has(m.ip)).map((m) => ({ farm_id: auth.agent.farm_id, name: m.name, ip: m.ip, protocol_port: m.port, type: m.type }));
+  const toInsert = inputs.filter((m) => !byIp.has(m.ip)).map((m) => ({ farm_id: auth.farm.id, name: m.name, ip: m.ip, protocol_port: m.port, type: m.type }));
   const toUpdate = inputs.filter((m) => byIp.has(m.ip));
 
   if (toInsert.length) {
@@ -66,8 +86,7 @@ export async function POST(request: Request) {
     await auth.service.from("miners").update({ name: miner.name, protocol_port: miner.port, type: miner.type }).eq("id", byIp.get(miner.ip));
   }
 
-  const { data: miners } = await auth.service.from("miners").select("id, name, ip, protocol_port, type").eq("farm_id", auth.agent.farm_id).eq("enabled", true);
-  return Response.json({ miners: (miners ?? []).map((m) => ({ id: m.id, name: m.name, ip: m.ip, port: m.protocol_port, type: m.type })) });
+  return Response.json(await buildConfigResponse(auth.service, auth.farm));
 }
 
 /** Remove uma máquina cadastrada pelo app local, identificada pelo IP. */
@@ -80,7 +99,7 @@ export async function DELETE(request: Request) {
   const ip = typeof body?.ip === "string" ? body.ip.trim() : "";
   if (!ip) return Response.json({ error: "IP não informado." }, { status: 400 });
 
-  const { error } = await auth.service.from("miners").delete().eq("farm_id", auth.agent.farm_id).eq("ip", ip);
+  const { error } = await auth.service.from("miners").delete().eq("farm_id", auth.farm.id).eq("ip", ip);
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ ok: true });
+  return Response.json(await buildConfigResponse(auth.service, auth.farm));
 }

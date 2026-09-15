@@ -1,22 +1,26 @@
 """ASIC Monitor Agent - aplicativo local com interface.
 
-Login proprio (usuario/senha guardados so nesta maquina), lista de maquinas
-com escaneamento de rede ou cadastro manual, e um coletor rodando em segundo
-plano que sincroniza a lista com a nuvem e envia telemetria a cada ciclo.
+Acesso protegido pelo token da fazenda (pedido toda vez que o app abre,
+valida contra a nuvem e mostra quantas licencas estao disponiveis). Lista
+de maquinas com escaneamento de rede (faixa de IP configuravel, valida o
+protocolo de verdade em vez de so checar porta aberta) ou cadastro manual,
+e um coletor rodando em segundo plano que envia telemetria e processa
+comandos de troca de pool / reinicio a cada ciclo.
 
 Empacotado com PyInstaller (veja README.md) como um .exe unico e sem console.
 """
 import asyncio
 import concurrent.futures
-import hashlib
+import ipaddress
 import json
 import os
 import queue
-import secrets
 import socket
 import sys
 import threading
 import tkinter as tk
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -25,10 +29,11 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner
 
-AGENT_VERSION = "0.4.0"
+AGENT_VERSION = "0.5.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
+LAST_LOGIN_PATH_NAME = "last_login.json"
 
 
 def base_dir() -> Path:
@@ -37,71 +42,22 @@ def base_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
-def config_path() -> Path:
-    return base_dir() / "config.json"
+def last_login_path() -> Path:
+    return base_dir() / LAST_LOGIN_PATH_NAME
 
 
-def auth_path() -> Path:
-    return base_dir() / "local_auth.json"
-
-
-def ensure_startup_entry() -> None:
+def load_last_login() -> dict:
     try:
-        STARTUP_DIR.mkdir(parents=True, exist_ok=True)
-        launcher = STARTUP_DIR / STARTUP_LAUNCHER_NAME
-        exe_path = Path(sys.executable).resolve() if getattr(sys, "frozen", False) else Path(__file__).resolve()
-        launcher.write_text(f'@echo off\r\nstart "" /min "{exe_path}"\r\n', encoding="utf-8")
+        return json.loads(last_login_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_last_login(api_url: str, agent_token: str) -> None:
+    try:
+        last_login_path().write_text(json.dumps({"api_url": api_url, "agent_token": agent_token}), encoding="utf-8")
     except OSError:
         pass
-
-
-# ------------------------- login local -------------------------
-
-def _hash_password(password: str, salt: bytes) -> str:
-    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000).hex()
-
-
-def has_local_account() -> bool:
-    return auth_path().exists()
-
-
-def create_local_account(username: str, password: str) -> None:
-    salt = secrets.token_bytes(16)
-    data = {"username": username, "salt": salt.hex(), "hash": _hash_password(password, salt)}
-    auth_path().write_text(json.dumps(data), encoding="utf-8")
-
-
-def verify_local_account(username: str, password: str) -> bool:
-    try:
-        data = json.loads(auth_path().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return False
-    if data.get("username") != username:
-        return False
-    salt = bytes.fromhex(data.get("salt", ""))
-    return _hash_password(password, salt) == data.get("hash")
-
-
-# ------------------------- configuracao da nuvem -------------------------
-
-def load_config() -> dict | None:
-    path = config_path()
-    if not path.exists():
-        return None
-    try:
-        config = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    url = str(config.get("api_url", ""))
-    if not url.startswith("http://") and not url.startswith("https://"):
-        return None
-    if not config.get("agent_token"):
-        return None
-    return config
-
-
-def save_config(api_url: str, agent_token: str) -> None:
-    config_path().write_text(json.dumps({"api_url": api_url.strip(), "agent_token": agent_token.strip()}, indent=2), encoding="utf-8")
 
 
 def config_url_from_api_url(api_url: str) -> str:
@@ -114,6 +70,16 @@ def commands_url_from_api_url(api_url: str) -> str:
     return base + "/commands"
 
 
+def ensure_startup_entry() -> None:
+    try:
+        STARTUP_DIR.mkdir(parents=True, exist_ok=True)
+        launcher = STARTUP_DIR / STARTUP_LAUNCHER_NAME
+        exe_path = Path(sys.executable).resolve() if getattr(sys, "frozen", False) else Path(__file__).resolve()
+        launcher.write_text(f'@echo off\r\nstart "" /min "{exe_path}"\r\n', encoding="utf-8")
+    except OSError:
+        pass
+
+
 # ------------------------- escaneamento de rede -------------------------
 
 def _tcp_open(ip: str, port: int, timeout: float = 0.3) -> bool:
@@ -124,120 +90,157 @@ def _tcp_open(ip: str, port: int, timeout: float = 0.3) -> bool:
         return False
 
 
-def scan_subnet(prefix: str, progress_callback=None) -> list[dict]:
-    """Varre prefix.1 a prefix.254 nas portas 4028 (cgminer) e 80 (Antminer HTTP).
-    Roda em threads (I/O bound) - rapido mesmo com 254 hosts."""
-    found = []
-    hosts = [f"{prefix}.{last}" for last in range(1, 255)]
+def _probe_cgminer_family(ip: str, timeout: float = 1.2) -> bool:
+    """Confirma que o dispositivo responde ao protocolo cgminer/bmminer (Whatsminer/Avalon),
+    não só que a porta 4028 está aberta (roteadores e outros serviços também abrem portas)."""
+    try:
+        with socket.create_connection((ip, 4028), timeout=timeout) as sock:
+            sock.sendall(json.dumps({"command": "summary"}).encode())
+            sock.settimeout(timeout)
+            data = b""
+            while len(data) < 65536:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        text = data.decode("utf-8", errors="ignore").replace("\x00", "").strip()
+        parsed = json.loads(text)
+        return isinstance(parsed, dict) and any(key in parsed for key in ("SUMMARY", "STATUS", "Msg"))
+    except Exception:
+        return False
+
+
+def _probe_antminer_http(ip: str, timeout: float = 1.2) -> bool:
+    """Confirma a API HTTP do Antminer (Vnish/Bitmain), não só que a porta 80 está aberta."""
+    try:
+        req = urllib.request.Request(f"http://{ip}/api/v1/summary", headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            data = json.loads(response.read().decode("utf-8", errors="ignore"))
+        return isinstance(data, dict) and "miner" in data
+    except Exception:
+        return False
+
+
+def hosts_in_range(start_ip: str, end_ip: str) -> list[str]:
+    start = ipaddress.IPv4Address(start_ip)
+    end = ipaddress.IPv4Address(end_ip)
+    if int(end) < int(start):
+        start, end = end, start
+    if int(end) - int(start) > 1024:
+        raise ValueError("Faixa grande demais (máximo 1024 endereços por vez).")
+    return [str(ipaddress.IPv4Address(value)) for value in range(int(start), int(end) + 1)]
+
+
+def scan_range(start_ip: str, end_ip: str, progress_callback=None) -> list[dict]:
+    """Varre a faixa de IP informada e confirma via protocolo real (não só porta aberta)."""
+    hosts = hosts_in_range(start_ip, end_ip)
     total = len(hosts)
+    found: list[dict] = []
 
     def probe(ip: str):
-        has_socket = _tcp_open(ip, 4028)
-        has_http = _tcp_open(ip, 80)
-        return ip, has_socket, has_http
+        if _tcp_open(ip, 80, timeout=0.3) and _probe_antminer_http(ip):
+            return {"ip": ip, "port": 4028, "type": "antminer", "name": ip}
+        if _tcp_open(ip, 4028, timeout=0.3) and _probe_cgminer_family(ip):
+            return {"ip": ip, "port": 4028, "type": "whatsminer", "name": ip}
+        return None
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=64) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=48) as pool:
         futures = {pool.submit(probe, ip): ip for ip in hosts}
         done = 0
         for future in concurrent.futures.as_completed(futures):
             done += 1
             if progress_callback:
                 progress_callback(done, total)
-            ip, has_socket, has_http = future.result()
-            if has_http:
-                found.append({"ip": ip, "port": 4028, "type": "antminer", "name": ip})
-            elif has_socket:
-                found.append({"ip": ip, "port": 4028, "type": "whatsminer", "name": ip})
+            result = future.result()
+            if result:
+                found.append(result)
     found.sort(key=lambda item: tuple(int(part) for part in item["ip"].split(".")))
     return found
 
 
-# ------------------------- coletor em segundo plano -------------------------
+def guess_local_prefix() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+        return ".".join(local_ip.split(".")[:3])
+    except OSError:
+        return "192.168.0"
+
+
+# ------------------------- validação do token contra a nuvem -------------------------
+
+def validate_login(api_url: str, agent_token: str) -> dict:
+    """Confirma o token com a nuvem e devolve fazenda + licenças. Lança RuntimeError com
+    uma mensagem amigável em caso de falha (URL inválida, token errado, rede fora)."""
+    if not api_url.startswith("http://") and not api_url.startswith("https://"):
+        raise RuntimeError("A URL precisa começar com http:// ou https://.")
+    if not agent_token:
+        raise RuntimeError("Informe o token do agente.")
+    config_url = config_url_from_api_url(api_url)
+    try:
+        response = httpx.get(config_url, headers={"Authorization": f"Bearer {agent_token}"}, timeout=10)
+    except httpx.HTTPError as error:
+        raise RuntimeError(f"Não consegui conectar: {error}") from error
+    if response.status_code == 401:
+        raise RuntimeError("Token inválido — gere um novo em Fazendas > Coletor no painel.")
+    if response.status_code != 200:
+        raise RuntimeError(f"O servidor respondeu com erro ({response.status_code}).")
+    return response.json()
+
+
+# ------------------------- coletor em segundo plano (só leitura/telemetria) -------------------------
 
 class Collector:
-    """Roda o loop assincrono numa thread separada da UI e publica atualizacoes
-    numa Queue thread-safe que a janela principal consome via root.after()."""
+    """Roda o loop assincrono de telemetria numa thread separada da UI e publica
+    atualizacoes numa Queue que a janela principal consome via root.after().
+    Nao lida com adicionar/remover maquina - isso e feito direto por chamadas
+    HTTP simples disparadas pelos botoes, para dar retorno imediato ao usuario."""
 
-    def __init__(self, events: "queue.Queue"):
-        self.events = events
-        self.config: dict | None = None
-        self.miners: list[dict] = []
-        self.poll_interval_seconds = 30
-        self._thread: threading.Thread | None = None
+    def __init__(self, ui_events: "queue.Queue", config: dict, miners: list[dict]):
+        self.ui_events = ui_events
+        self.config = config
+        self.miners = miners
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._stop = threading.Event()
 
-    def start(self, config: dict) -> None:
-        self.config = config
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+    def start(self) -> None:
         self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
 
-    def request_add_miners(self, miners: list[dict]) -> None:
-        self.events.put({"type": "register", "miners": miners})
-
-    def request_remove_miner(self, ip: str) -> None:
-        self.events.put({"type": "unregister", "ip": ip})
+    def set_miners(self, miners: list[dict]) -> None:
+        self.miners = miners
 
     def _run_loop(self) -> None:
         asyncio.run(self._async_main())
 
     async def _async_main(self) -> None:
-        config = self.config
-        headers = {"Authorization": f"Bearer {config['agent_token']}", "X-Agent-Version": AGENT_VERSION}
-        config_url = config_url_from_api_url(config["api_url"])
-        commands_url = commands_url_from_api_url(config["api_url"])
+        headers = {"Authorization": f"Bearer {self.config['agent_token']}", "X-Agent-Version": AGENT_VERSION}
+        config_url = config_url_from_api_url(self.config["api_url"])
+        commands_url = commands_url_from_api_url(self.config["api_url"])
+        interval = 30
 
         async with httpx.AsyncClient(timeout=15) as client:
             while not self._stop.is_set():
-                await self._drain_control_events(client, config_url, headers)
                 await self._sync_miners(client, config_url, headers)
                 await self._process_command(client, commands_url, headers)
-                await self._poll_and_report(client, config["api_url"], headers)
-                for _ in range(self.poll_interval_seconds):
+                await self._poll_and_report(client, self.config["api_url"], headers)
+                for _ in range(interval):
                     if self._stop.is_set():
                         break
                     await asyncio.sleep(1)
-
-    async def _drain_control_events(self, client, config_url, headers) -> None:
-        while True:
-            try:
-                event = self.events.get_nowait()
-            except queue.Empty:
-                return
-            if event["type"] == "register":
-                try:
-                    response = await client.post(config_url, headers=headers, json={"miners": event["miners"]})
-                    response.raise_for_status()
-                    self.miners = response.json().get("miners", self.miners)
-                    self.events.put({"type": "miners_updated", "miners": self.miners})
-                except httpx.HTTPError as error:
-                    self.events.put({"type": "error", "message": f"Falha ao cadastrar máquina: {error}"})
-            elif event["type"] == "unregister":
-                try:
-                    response = await client.request("DELETE", config_url, headers=headers, json={"ip": event["ip"]})
-                    response.raise_for_status()
-                    self.miners = [m for m in self.miners if m.get("ip") != event["ip"]]
-                    self.events.put({"type": "miners_updated", "miners": self.miners})
-                except httpx.HTTPError as error:
-                    self.events.put({"type": "error", "message": f"Falha ao remover máquina: {error}"})
 
     async def _sync_miners(self, client, config_url, headers) -> None:
         try:
             response = await client.get(config_url, headers=headers)
             response.raise_for_status()
             data = response.json()
-            remote = data.get("miners")
-            if remote is not None:
-                self.miners = remote
-                self.events.put({"type": "miners_updated", "miners": self.miners})
-            interval = data.get("poll_interval_seconds")
-            if isinstance(interval, int) and interval >= 10:
-                self.poll_interval_seconds = interval
+            self.miners = data.get("miners", self.miners)
+            self.ui_events.put({"type": "miners_updated", "miners": self.miners, "licensed_machines": data.get("licensed_machines"), "used_machines": data.get("used_machines"), "farm_name": data.get("farm_name")})
         except httpx.HTTPError as error:
-            self.events.put({"type": "error", "message": f"Falha ao sincronizar com a nuvem: {error}"})
+            self.ui_events.put({"type": "status", "message": f"Falha ao sincronizar com a nuvem: {error}"})
 
     async def _process_command(self, client, commands_url, headers) -> None:
         try:
@@ -257,21 +260,22 @@ class Collector:
             report = await client.post(commands_url, headers=headers, json={"command_id": command["id"], "results": list(results)})
             report.raise_for_status()
         except httpx.HTTPError as error:
-            self.events.put({"type": "error", "message": f"Falha ao processar comando: {error}"})
+            self.ui_events.put({"type": "status", "message": f"Falha ao processar comando: {error}"})
 
     async def _poll_and_report(self, client, api_url, headers) -> None:
-        if not self.miners:
-            self.events.put({"type": "metrics", "metrics": []})
+        licensed_miners = [m for m in self.miners if m.get("licensed", True)]
+        if not licensed_miners:
+            self.ui_events.put({"type": "metrics", "metrics": []})
             return
-        metrics = await asyncio.gather(*(poll_miner(m) for m in self.miners))
-        self.events.put({"type": "metrics", "metrics": list(metrics)})
+        metrics = await asyncio.gather(*(poll_miner(m) for m in licensed_miners))
+        self.ui_events.put({"type": "metrics", "metrics": list(metrics)})
         payload = {"observed_at": datetime.now(timezone.utc).isoformat(), "metrics": list(metrics)}
         try:
             response = await client.post(api_url, headers=headers, json=payload)
             response.raise_for_status()
-            self.events.put({"type": "sent", "count": len(metrics)})
+            self.ui_events.put({"type": "status", "message": f"Última atualização: {datetime.now().strftime('%H:%M:%S')} · {len(metrics)} máquina(s)"})
         except httpx.HTTPError as error:
-            self.events.put({"type": "error", "message": f"Falha ao enviar métricas: {error}"})
+            self.ui_events.put({"type": "status", "message": f"Falha ao enviar métricas: {error}"})
 
 
 # ------------------------- interface -------------------------
@@ -280,81 +284,90 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("ASIC Monitor Agent")
-        self.geometry("880x560")
-        self.minsize(760, 480)
-        self.events: "queue.Queue" = queue.Queue()
-        self.collector = Collector(self.events)
+        self.geometry("920x600")
+        self.minsize(780, 500)
+        self.ui_events: "queue.Queue" = queue.Queue()
+        self.collector: Collector | None = None
+        self.config_data: dict | None = None
+        self.miners: list[dict] = []
+        self.metrics_by_ip: dict[str, dict] = {}
         self._build_login()
 
-    # ---- login ----
+    # ---- login por token ----
 
     def _build_login(self) -> None:
         for widget in self.winfo_children():
             widget.destroy()
         frame = ttk.Frame(self, padding=40)
         frame.place(relx=0.5, rely=0.5, anchor="center")
-        creating = not has_local_account()
+        last = load_last_login()
 
         ttk.Label(frame, text="ASIC Monitor Agent", font=("Segoe UI", 16, "bold")).grid(row=0, column=0, columnspan=2, pady=(0, 4))
-        ttk.Label(frame, text="Crie um acesso local" if creating else "Entrar").grid(row=1, column=0, columnspan=2, pady=(0, 16))
+        ttk.Label(frame, text="Informe o token da fazenda para acessar").grid(row=1, column=0, columnspan=2, pady=(0, 16))
 
-        ttk.Label(frame, text="Usuário").grid(row=2, column=0, sticky="w")
-        user_entry = ttk.Entry(frame, width=28)
-        user_entry.grid(row=2, column=1, pady=4)
+        ttk.Label(frame, text="URL da API").grid(row=2, column=0, sticky="w")
+        url_entry = ttk.Entry(frame, width=40)
+        url_entry.insert(0, last.get("api_url", ""))
+        url_entry.grid(row=2, column=1, pady=4)
 
-        ttk.Label(frame, text="Senha").grid(row=3, column=0, sticky="w")
-        pass_entry = ttk.Entry(frame, width=28, show="•")
-        pass_entry.grid(row=3, column=1, pady=4)
+        ttk.Label(frame, text="Token do agente").grid(row=3, column=0, sticky="w")
+        token_entry = ttk.Entry(frame, width=40, show="•")
+        token_entry.insert(0, last.get("agent_token", ""))
+        token_entry.grid(row=3, column=1, pady=4)
 
-        confirm_entry = None
-        if creating:
-            ttk.Label(frame, text="Confirmar senha").grid(row=4, column=0, sticky="w")
-            confirm_entry = ttk.Entry(frame, width=28, show="•")
-            confirm_entry.grid(row=4, column=1, pady=4)
+        status_label = ttk.Label(frame, text="", foreground="#c0392b")
+        status_label.grid(row=4, column=0, columnspan=2, pady=(6, 0))
 
-        error_label = ttk.Label(frame, text="", foreground="#c0392b")
-        error_label.grid(row=5, column=0, columnspan=2, pady=(6, 0))
+        def do_login(event=None):
+            api_url = url_entry.get().strip()
+            agent_token = token_entry.get().strip()
+            login_button.config(state="disabled")
+            status_label.config(foreground="#2c7a4b", text="Validando...")
 
-        def submit(event=None):
-            username = user_entry.get().strip()
-            password = pass_entry.get()
-            if not username or not password:
-                error_label.config(text="Preencha usuário e senha.")
-                return
-            if creating:
-                if len(password) < 4:
-                    error_label.config(text="Senha muito curta (mínimo 4 caracteres).")
+            def worker():
+                try:
+                    data = validate_login(api_url, agent_token)
+                except RuntimeError as error:
+                    self.after(0, lambda: on_fail(str(error)))
                     return
-                if password != confirm_entry.get():
-                    error_label.config(text="As senhas não conferem.")
-                    return
-                create_local_account(username, password)
-                self._build_main()
-                return
-            if verify_local_account(username, password):
-                self._build_main()
-            else:
-                error_label.config(text="Usuário ou senha incorretos.")
+                self.after(0, lambda: on_success(api_url, agent_token, data))
 
-        button_row = 6 if creating else 5
-        ttk.Button(frame, text="Criar conta" if creating else "Entrar", command=submit).grid(row=button_row, column=0, columnspan=2, pady=(12, 0))
-        user_entry.bind("<Return>", submit)
-        pass_entry.bind("<Return>", submit)
-        if confirm_entry:
-            confirm_entry.bind("<Return>", submit)
-        user_entry.focus_set()
+            def on_fail(message: str):
+                login_button.config(state="normal")
+                status_label.config(foreground="#c0392b", text=message)
+
+            def on_success(api_url: str, agent_token: str, data: dict):
+                save_last_login(api_url, agent_token)
+                self.config_data = {"api_url": api_url, "agent_token": agent_token}
+                self.miners = data.get("miners", [])
+                self._build_main(data)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        login_button = ttk.Button(frame, text="Entrar", command=do_login)
+        login_button.grid(row=5, column=0, columnspan=2, pady=(12, 0))
+        url_entry.bind("<Return>", do_login)
+        token_entry.bind("<Return>", do_login)
+        url_entry.focus_set()
 
     # ---- janela principal ----
 
-    def _build_main(self) -> None:
+    def _build_main(self, login_data: dict) -> None:
         for widget in self.winfo_children():
             widget.destroy()
+        ensure_startup_entry()
 
         top = ttk.Frame(self, padding=(14, 10))
         top.pack(fill="x")
-        self.status_label = ttk.Label(top, text="Configure a nuvem para começar.", font=("Segoe UI", 10))
-        self.status_label.pack(side="left")
-        ttk.Button(top, text="Configurações da nuvem", command=self._open_cloud_settings).pack(side="right")
+        farm_name = login_data.get("farm_name") or "Fazenda"
+        self.header_label = ttk.Label(top, text=farm_name, font=("Segoe UI", 12, "bold"))
+        self.header_label.pack(side="left")
+        self.license_label = ttk.Label(top, text="")
+        self.license_label.pack(side="left", padx=(14, 0))
+        ttk.Button(top, text="Sair", command=self._logout).pack(side="right")
+        self.status_label = ttk.Label(top, text="Conectando...")
+        self.status_label.pack(side="right", padx=(0, 14))
+        self._update_license_label(login_data.get("licensed_machines"), login_data.get("used_machines"))
 
         toolbar = ttk.Frame(self, padding=(14, 0))
         toolbar.pack(fill="x")
@@ -362,71 +375,76 @@ class App(tk.Tk):
         ttk.Button(toolbar, text="⌕ Escanear rede", command=self._open_scan).pack(side="left", padx=(0, 8))
         ttk.Button(toolbar, text="Remover selecionada", command=self._remove_selected).pack(side="left")
 
-        columns = ("ip", "port", "type", "status", "hashrate", "power")
+        columns = ("ip", "port", "type", "license", "status", "hashrate", "power")
         self.tree = ttk.Treeview(self, columns=columns, show="tree headings", height=16)
         self.tree.heading("#0", text="Nome")
         self.tree.heading("ip", text="IP")
         self.tree.heading("port", text="Porta")
         self.tree.heading("type", text="Fabricante")
+        self.tree.heading("license", text="Licença")
         self.tree.heading("status", text="Status")
         self.tree.heading("hashrate", text="TH/s")
         self.tree.heading("power", text="Consumo (W)")
-        for col, width in (("#0", 160), ("ip", 130), ("port", 70), ("type", 100), ("status", 90), ("hashrate", 90), ("power", 110)):
-            self.tree.column(col, width=width, anchor="w" if col in ("#0", "ip", "type", "status") else "center")
+        for col, width in (("#0", 150), ("ip", 120), ("port", 60), ("type", 90), ("license", 90), ("status", 80), ("hashrate", 80), ("power", 100)):
+            self.tree.column(col, width=width, anchor="w" if col in ("#0", "ip", "type") else "center")
         self.tree.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
-        self.miners: list[dict] = []
-        self.metrics_by_ip: dict[str, dict] = {}
+        self._render_tree()
+        self.collector = Collector(self.ui_events, self.config_data, self.miners)
+        self.collector.start()
+        self.after(300, self._drain_events)
 
-        config = load_config()
-        if config:
-            self.status_label.config(text=f"Conectado a {config['api_url']}")
-            self.collector.start(config)
-        ensure_startup_entry()
-        self.after(400, self._drain_events)
-
-    def _open_cloud_settings(self) -> None:
-        config = load_config() or {}
-        dialog = tk.Toplevel(self)
-        dialog.title("Configurações da nuvem")
-        dialog.geometry("460x200")
-        dialog.transient(self)
-        frame = ttk.Frame(dialog, padding=20)
-        frame.pack(fill="both", expand=True)
-
-        ttk.Label(frame, text="URL da API (ex: https://seu-dominio.vercel.app/api/agent/metrics)").pack(anchor="w")
-        url_entry = ttk.Entry(frame, width=54)
-        url_entry.insert(0, config.get("api_url", ""))
-        url_entry.pack(fill="x", pady=(2, 12))
-
-        ttk.Label(frame, text="Token do agente (gerado no painel, em Fazendas)").pack(anchor="w")
-        token_entry = ttk.Entry(frame, width=54)
-        token_entry.insert(0, config.get("agent_token", ""))
-        token_entry.pack(fill="x", pady=(2, 12))
-
-        def save():
-            url = url_entry.get().strip()
-            token = token_entry.get().strip()
-            if not url.startswith("http://") and not url.startswith("https://"):
-                messagebox.showerror("Configurações da nuvem", "A URL precisa começar com http:// ou https://.")
-                return
-            if not token:
-                messagebox.showerror("Configurações da nuvem", "Informe o token do agente.")
-                return
-            save_config(url, token)
+    def _logout(self) -> None:
+        if self.collector:
             self.collector.stop()
-            self.collector = Collector(self.events)
-            self.collector.start({"api_url": url, "agent_token": token})
-            self.status_label.config(text=f"Conectado a {url}")
-            dialog.destroy()
+            self.collector = None
+        self._build_login()
 
-        ttk.Button(frame, text="Salvar", command=save).pack(anchor="e")
+    def _update_license_label(self, licensed, used) -> None:
+        if licensed is None or used is None:
+            self.license_label.config(text="")
+            return
+        over = used > licensed
+        self.license_label.config(text=f"{used}/{licensed} licenças usadas" + (" · limite atingido" if over else ""), foreground="#c0392b" if over else "#2c7a4b")
+
+    # ---- adicionar / remover (chamadas diretas, feedback imediato) ----
+
+    def _request(self, method: str, path: str, json_body: dict, on_done):
+        """Faz a chamada HTTP numa thread separada e chama on_done(ok, data_or_error) na UI thread."""
+        config = self.config_data
+        url = config_url_from_api_url(config["api_url"]) if path == "config" else config["api_url"]
+
+        def worker():
+            try:
+                headers = {"Authorization": f"Bearer {config['agent_token']}"}
+                with httpx.Client(timeout=15) as client:
+                    response = client.request(method, url, headers=headers, json=json_body)
+                if response.status_code == 401:
+                    self.after(0, lambda: on_done(False, "Token inválido ou expirado."))
+                    return
+                if response.status_code >= 400:
+                    message = response.json().get("error", f"Erro {response.status_code}") if response.headers.get("content-type", "").startswith("application/json") else f"Erro {response.status_code}"
+                    self.after(0, lambda: on_done(False, message))
+                    return
+                self.after(0, lambda: on_done(True, response.json()))
+            except httpx.HTTPError as error:
+                self.after(0, lambda: on_done(False, str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_config_response(self, data: dict) -> None:
+        self.miners = data.get("miners", self.miners)
+        if self.collector:
+            self.collector.set_miners(self.miners)
+        self._update_license_label(data.get("licensed_machines"), data.get("used_machines"))
+        self._render_tree()
 
     def _open_add_manual(self) -> None:
         dialog = tk.Toplevel(self)
         dialog.title("Adicionar máquina")
         dialog.geometry("360x260")
         dialog.transient(self)
+        dialog.grab_set()
         frame = ttk.Frame(dialog, padding=20)
         frame.pack(fill="both", expand=True)
 
@@ -447,33 +465,57 @@ class App(tk.Tk):
         type_var = tk.StringVar(value=MINER_TYPES[0])
         ttk.Combobox(frame, textvariable=type_var, values=MINER_TYPES, state="readonly").pack(fill="x", pady=(2, 14))
 
+        status_label = ttk.Label(frame, text="", foreground="#c0392b")
+        status_label.pack(anchor="w")
+
         def confirm():
-            if not load_config():
-                messagebox.showwarning("Adicionar máquina", "Configure a nuvem (URL e token) antes de adicionar máquinas.")
-                return
             ip = ip_entry.get().strip()
             if not ip:
-                messagebox.showerror("Adicionar máquina", "Informe o IP.")
+                status_label.config(text="Informe o IP.")
                 return
-            miner = {"name": name_entry.get().strip() or ip, "ip": ip, "port": int(port_entry.get() or 4028), "type": type_var.get()}
-            self.collector.request_add_miners([miner])
-            dialog.destroy()
+            try:
+                port = int(port_entry.get() or 4028)
+            except ValueError:
+                status_label.config(text="Porta inválida.")
+                return
+            miner = {"name": name_entry.get().strip() or ip, "ip": ip, "port": port, "type": type_var.get()}
+            confirm_button.config(state="disabled")
+            status_label.config(foreground="#2c7a4b", text="Enviando...")
 
-        ttk.Button(frame, text="Adicionar", command=confirm).pack(anchor="e")
+            def done(ok: bool, result):
+                if ok:
+                    self._apply_config_response(result)
+                    dialog.destroy()
+                    messagebox.showinfo("Adicionar máquina", f"{ip} adicionada.")
+                else:
+                    confirm_button.config(state="normal")
+                    status_label.config(foreground="#c0392b", text=str(result))
+
+            self._request("POST", "config", {"miners": [miner]}, done)
+
+        confirm_button = ttk.Button(frame, text="Adicionar", command=confirm)
+        confirm_button.pack(anchor="e")
 
     def _open_scan(self) -> None:
         dialog = tk.Toplevel(self)
         dialog.title("Escanear rede")
-        dialog.geometry("520x440")
+        dialog.geometry("560x480")
         dialog.transient(self)
         frame = ttk.Frame(dialog, padding=16)
         frame.pack(fill="both", expand=True)
 
-        ttk.Label(frame, text="Prefixo da rede (ex: 192.168.0)").pack(anchor="w")
-        default_prefix = self._guess_local_prefix()
-        prefix_entry = ttk.Entry(frame, width=24)
-        prefix_entry.insert(0, default_prefix)
-        prefix_entry.pack(anchor="w", pady=(2, 10))
+        default_prefix = guess_local_prefix()
+        range_row = ttk.Frame(frame)
+        range_row.pack(fill="x")
+        ttk.Label(range_row, text="IP inicial").grid(row=0, column=0, sticky="w")
+        start_entry = ttk.Entry(range_row, width=18)
+        start_entry.insert(0, f"{default_prefix}.1")
+        start_entry.grid(row=1, column=0, padx=(0, 12))
+        ttk.Label(range_row, text="IP final").grid(row=0, column=1, sticky="w")
+        end_entry = ttk.Entry(range_row, width=18)
+        end_entry.insert(0, f"{default_prefix}.254")
+        end_entry.grid(row=1, column=1)
+        ttk.Label(frame, text="Confirma o protocolo real do dispositivo (não só a porta aberta) — evita listar roteadores, impressoras etc.", wraplength=520, foreground="#666").pack(anchor="w", pady=(8, 10))
 
         progress = ttk.Progressbar(frame, mode="determinate", maximum=254)
         progress.pack(fill="x", pady=(0, 10))
@@ -485,21 +527,30 @@ class App(tk.Tk):
         results_list = tk.Listbox(results_frame, selectmode="multiple")
         results_list.pack(fill="both", expand=True)
         found_devices: list[dict] = []
+        add_status = ttk.Label(frame, text="", foreground="#c0392b")
 
         def on_progress(done, total):
-            self.after(0, lambda: (progress.configure(value=done), status.configure(text=f"Escaneando... {done}/{total}")))
+            self.after(0, lambda: (progress.configure(value=done, maximum=total), status.configure(text=f"Escaneando... {done}/{total}")))
 
         def run_scan():
-            prefix = prefix_entry.get().strip()
-            if prefix.count(".") != 2:
-                messagebox.showerror("Escanear rede", "Use o formato 192.168.0 (sem o último número).")
+            start_ip, end_ip = start_entry.get().strip(), end_entry.get().strip()
+            try:
+                ipaddress.IPv4Address(start_ip)
+                ipaddress.IPv4Address(end_ip)
+            except ValueError:
+                messagebox.showerror("Escanear rede", "IP inicial ou final inválido.")
                 return
             scan_button.config(state="disabled")
             results_list.delete(0, "end")
             found_devices.clear()
 
             def worker():
-                devices = scan_subnet(prefix, progress_callback=on_progress)
+                try:
+                    devices = scan_range(start_ip, end_ip, progress_callback=on_progress)
+                except ValueError as error:
+                    self.after(0, lambda: messagebox.showerror("Escanear rede", str(error)))
+                    self.after(0, lambda: scan_button.config(state="normal"))
+                    return
                 found_devices.extend(devices)
                 self.after(0, populate_results)
 
@@ -507,84 +558,106 @@ class App(tk.Tk):
 
         def populate_results():
             scan_button.config(state="normal")
-            status.config(text=f"{len(found_devices)} dispositivo(s) encontrado(s). Selecione os que quer adicionar.")
+            status.config(text=f"{len(found_devices)} dispositivo(s) confirmado(s). Selecione os que quer adicionar.")
             for device in found_devices:
                 results_list.insert("end", f"{device['ip']}  ·  sugestão: {device['type']}")
 
         def add_selected():
-            if not load_config():
-                messagebox.showwarning("Escanear rede", "Configure a nuvem (URL e token) antes de adicionar máquinas.")
-                return
             selected_indices = results_list.curselection()
             if not selected_indices:
-                messagebox.showinfo("Escanear rede", "Selecione ao menos um dispositivo.")
+                add_status.config(text="Selecione ao menos um dispositivo.")
                 return
             miners = [found_devices[i] for i in selected_indices]
-            self.collector.request_add_miners(miners)
-            dialog.destroy()
+            add_button.config(state="disabled")
+            add_status.config(foreground="#2c7a4b", text="Adicionando...")
+
+            def done(ok: bool, result):
+                if ok:
+                    self._apply_config_response(result)
+                    dialog.destroy()
+                    messagebox.showinfo("Escanear rede", f"{len(miners)} máquina(s) adicionada(s).")
+                else:
+                    add_button.config(state="normal")
+                    add_status.config(foreground="#c0392b", text=str(result))
+
+            self._request("POST", "config", {"miners": miners}, done)
 
         button_row = ttk.Frame(frame)
         button_row.pack(fill="x")
         scan_button = ttk.Button(button_row, text="Escanear", command=run_scan)
         scan_button.pack(side="left")
-        ttk.Button(button_row, text="Adicionar selecionadas", command=add_selected).pack(side="right")
-
-    @staticmethod
-    def _guess_local_prefix() -> str:
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-                s.connect(("8.8.8.8", 80))
-                local_ip = s.getsockname()[0]
-            return ".".join(local_ip.split(".")[:3])
-        except OSError:
-            return "192.168.0"
+        add_button = ttk.Button(button_row, text="Adicionar selecionadas", command=add_selected)
+        add_button.pack(side="right")
+        add_status.pack(anchor="e")
 
     def _remove_selected(self) -> None:
         selection = self.tree.selection()
         if not selection:
+            messagebox.showinfo("Remover máquina", "Selecione uma máquina na lista primeiro.")
             return
-        for item_id in selection:
-            ip = self.tree.set(item_id, "ip")
-            if messagebox.askyesno("Remover máquina", f"Remover {ip} do monitoramento?"):
-                self.collector.request_remove_miner(ip)
+        item_id = selection[0]
+        ip = self.tree.set(item_id, "ip")
+        name = self.tree.item(item_id, "text")
+        if not messagebox.askyesno("Remover máquina", f"Remover {name} ({ip}) do monitoramento?"):
+            return
+
+        def done(ok: bool, result):
+            if ok:
+                self._apply_config_response(result)
+                messagebox.showinfo("Remover máquina", f"{name} removida.")
+            else:
+                messagebox.showerror("Remover máquina", str(result))
+
+        self._request("DELETE", "config", {"ip": ip}, done)
 
     # ---- eventos vindos da thread do coletor ----
 
     def _drain_events(self) -> None:
         try:
             while True:
-                event = self.events.get_nowait()
+                event = self.ui_events.get_nowait()
                 self._handle_event(event)
         except queue.Empty:
             pass
-        self.after(400, self._drain_events)
+        self.after(300, self._drain_events)
 
     def _handle_event(self, event: dict) -> None:
         kind = event.get("type")
         if kind == "miners_updated":
             self.miners = event["miners"]
+            self._update_license_label(event.get("licensed_machines"), event.get("used_machines"))
             self._render_tree()
         elif kind == "metrics":
             self.metrics_by_ip = {m.get("ip"): m for m in event["metrics"]}
             self._render_tree()
-        elif kind == "sent":
-            self.status_label.config(text=f"Última atualização: {datetime.now().strftime('%H:%M:%S')} · {event['count']} máquina(s)")
-        elif kind == "error":
+        elif kind == "status":
             self.status_label.config(text=event["message"])
 
     def _render_tree(self) -> None:
+        selected_ip = None
+        selection = self.tree.selection()
+        if selection:
+            selected_ip = self.tree.set(selection[0], "ip")
         self.tree.delete(*self.tree.get_children())
+        restore_id = None
         for miner in self.miners:
+            licensed = miner.get("licensed", True)
             metric = self.metrics_by_ip.get(miner.get("ip"), {})
             online = metric.get("online")
             status_text = "online" if online else ("offline" if metric else "—")
             hashrate = metric.get("hashrate_ths")
             power = metric.get("power_w")
-            self.tree.insert("", "end", text=miner.get("name", miner.get("ip")), values=(
-                miner.get("ip"), miner.get("port"), miner.get("type"), status_text,
-                f"{hashrate:.2f}" if isinstance(hashrate, (int, float)) else "—",
-                f"{power:.0f}" if isinstance(power, (int, float)) else "—",
+            item_id = self.tree.insert("", "end", text=miner.get("name", miner.get("ip")), values=(
+                miner.get("ip"), miner.get("port"), miner.get("type"),
+                "OK" if licensed else "🔒 pendente",
+                status_text if licensed else "—",
+                f"{hashrate:.2f}" if licensed and isinstance(hashrate, (int, float)) else "—",
+                f"{power:.0f}" if licensed and isinstance(power, (int, float)) else "—",
             ))
+            if miner.get("ip") == selected_ip:
+                restore_id = item_id
+        if restore_id:
+            self.tree.selection_set(restore_id)
 
 
 def main() -> None:

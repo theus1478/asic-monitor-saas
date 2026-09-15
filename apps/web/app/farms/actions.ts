@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createClient } from "../../lib/supabase/server";
 import { generateAgentToken, hashAgentToken } from "../../lib/agent-token";
 
@@ -42,14 +41,10 @@ export async function addMiner(farmId: string, formData: FormData) {
   if (!name || !ip) return;
 
   const { supabase, organizationId } = await requireOrgId();
-  const [{ data: farm }, { data: batches }, { count }] = await Promise.all([
-    supabase.from("farms").select("id").eq("id", farmId).eq("organization_id", organizationId).maybeSingle(),
-    supabase.from("license_batches").select("quantity").eq("organization_id", organizationId).eq("status", "active").gt("expires_at", new Date().toISOString()),
-    supabase.from("miners").select("id, farms!inner(organization_id)", { count: "exact", head: true }).eq("farms.organization_id", organizationId),
-  ]);
+  const { data: farm } = await supabase.from("farms").select("id").eq("id", farmId).eq("organization_id", organizationId).maybeSingle();
   if (!farm) throw new Error("Fazenda não encontrada.");
-  const licensed = (batches ?? []).reduce((total, batch) => total + Number(batch.quantity), 0);
-  if ((count ?? 0) >= licensed) redirect(`/billing?error=${encodeURIComponent("Compre uma licença antes de adicionar outra máquina.")}`);
+  // Sempre cadastra, mesmo sem licença disponível — a máquina fica visível
+  // com um aviso pedindo licença até o cliente comprar (ver lib/license.ts).
   await supabase.from("miners").insert({ farm_id: farmId, name, ip, protocol_port: port, type });
   revalidatePath(`/farms/${farmId}`);
 }
