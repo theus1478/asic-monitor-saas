@@ -27,6 +27,6 @@ consultar todos os clientes, hashrate e faturas por organização, e resetar
 senha de qualquer usuário. Quem tem esse papel vê um atalho fixo "⚙ Painel
 admin" no canto superior direito de qualquer página do painel do cliente.
 
-Preço-base: **US$ 3,00 por máquina ativa/mês**. Descontos por volume serão configuráveis no banco para não depender de alteração de código. As faturas mensais serão pagas em **USDT na rede Solana**, com conferência automática na blockchain.
+Preço: **US$ 1,00 por máquina ativa/mês**, valor único, sem faixas por volume. As faturas mensais serão pagas em **USDT na rede Solana**, com conferência automática na blockchain.
 
 Leia [a arquitetura](docs/architecture.md) antes de iniciar a implementação.

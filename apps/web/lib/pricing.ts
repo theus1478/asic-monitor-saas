@@ -5,15 +5,11 @@ export interface PricingTier {
 }
 
 /**
- * Faixas padrão de US$/máquina/mês. Preço marginal por faixa (graduado), não
- * plano único: cada máquina paga o preço da faixa em que cai. Configurável
- * futuramente pelo painel admin; hoje vive só no código.
+ * Faixas padrão de US$/máquina/mês. Configurável futuramente pelo painel
+ * admin; hoje vive só no código.
  */
 export const DEFAULT_PRICING_TIERS: PricingTier[] = [
-  { from: 1, to: 14, unitPriceCents: 300 },
-  { from: 15, to: 49, unitPriceCents: 270 },
-  { from: 50, to: 99, unitPriceCents: 240 },
-  { from: 100, unitPriceCents: 210 },
+  { from: 1, unitPriceCents: 100 },
 ];
 
 export function monthlyPriceCents(machineCount: number, tiers: PricingTier[] = DEFAULT_PRICING_TIERS) {

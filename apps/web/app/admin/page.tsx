@@ -136,7 +136,7 @@ export default async function AdminPage() {
     </section>
     <section id="licencas" className="card">
       <h2>Licenciamento</h2>
-      <p className="muted">Toda conta nova ganha 3 licenças grátis por 30 dias ao se cadastrar. Cada máquina cadastrada conta para a licença da organização, e a régua de desconto progressivo é a mesma usada na calculadora de cobrança do cliente.</p>
+      <p className="muted">Toda conta nova ganha 3 licenças grátis por 30 dias ao se cadastrar. Cada máquina cadastrada conta para a licença da organização, e o preço é o mesmo usado na calculadora de cobrança do cliente: US$ 1,00 por máquina/mês.</p>
     </section>
     <section id="api-ninjas" className="card setup">
       <p className="eyebrow">COTAÇÃO DE BTC</p>

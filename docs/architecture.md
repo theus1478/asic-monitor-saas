@@ -80,7 +80,7 @@ primeiro, o atalho é o caminho pra alternar pro `/admin`.
 
 ## Licença e cobrança
 
-Máquinas cadastradas e ativas contam para a cobrança. A plataforma compara o total ativo com a quantidade licenciada. A tabela de faixas fica no banco: preço-base de US$ 3,00 e descontos progressivos configuráveis a partir de 15 máquinas.
+Máquinas cadastradas e ativas contam para a cobrança. A plataforma compara o total ativo com a quantidade licenciada. Preço único de US$ 1,00 por máquina/mês (`apps/web/lib/pricing.ts`, `DEFAULT_PRICING_TIERS`), sem faixas por volume — configurável futuramente pelo painel admin, hoje vive só no código.
 
 Toda organização nova ganha automaticamente um lote de **3 licenças grátis,
 válidas por 30 dias**, criado pelo mesmo trigger que cria a organização no
