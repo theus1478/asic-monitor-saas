@@ -40,14 +40,14 @@ const DEFAULT_CREDENTIALS: Record<string, { username: string; password: string }
   whatsminer: { username: "admin", password: "admin" },
 };
 
-export async function rebootMiner(farmId: string, minerId: string) {
+async function sendMinerCommand(farmId: string, minerId: string, kind: "reboot" | "stop_mining", sentMessage: string) {
   const { user, organizationId } = await requireFarmMembership(farmId);
   const service = createServiceClient();
   const [{ data: agents }, { data: miner }] = await Promise.all([
     service.from("agents").select("id").eq("farm_id", farmId).order("last_seen_at", { ascending: false, nullsFirst: false }).limit(1),
     service.from("miners").select("type").eq("id", minerId).eq("farm_id", farmId).maybeSingle(),
   ]);
-  if (!agents?.length) return { ok: false, message: "Instale e configure um coletor antes de reiniciar máquinas." };
+  if (!agents?.length) return { ok: false, message: "Instale e configure um coletor antes de enviar comandos." };
   if (!miner) return { ok: false, message: "Máquina não encontrada." };
 
   const credentials = DEFAULT_CREDENTIALS[miner.type] ?? DEFAULT_CREDENTIALS.antminer;
@@ -56,12 +56,20 @@ export async function rebootMiner(farmId: string, minerId: string) {
     organization_id: organizationId,
     farm_id: farmId,
     agent_id: agents[0].id,
-    kind: "reboot",
+    kind,
     encrypted_payload: encryptedPayload,
     target_count: 1,
     requested_by: user.id,
   });
   if (error) return { ok: false, message: `Não foi possível enviar o comando: ${error.message}` };
   revalidatePath(`/farms/${farmId}`);
-  return { ok: true, message: "Reinício enviado — o coletor aplica no próximo ciclo." };
+  return { ok: true, message: sentMessage };
+}
+
+export async function rebootMiner(farmId: string, minerId: string) {
+  return sendMinerCommand(farmId, minerId, "reboot", "Reinício enviado — o coletor aplica no próximo ciclo.");
+}
+
+export async function stopMiningOnMiner(farmId: string, minerId: string) {
+  return sendMinerCommand(farmId, minerId, "stop_mining", "Comando de parar mineração enviado — o coletor aplica no próximo ciclo.");
 }

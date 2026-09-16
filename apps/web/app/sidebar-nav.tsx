@@ -17,6 +17,7 @@ function SidebarNavContent({ admin, pathname }: { admin: boolean; pathname: stri
     { href: "/dashboard", label: t("overview"), icon: "⌁" },
     { href: "/farms", label: t("farms"), icon: "▦" },
     { href: "/collector", label: t("collector"), icon: "⇣" },
+    { href: "/incidents", label: t("incidents"), icon: "▲" },
     { href: "/billing", label: t("licenses"), icon: "◇" },
     { href: "/affiliate", label: t("affiliates"), icon: "✦" },
   ];

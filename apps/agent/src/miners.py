@@ -768,6 +768,51 @@ async def reboot_miner(miner, credentials=None):
     return result
 
 
+async def _stop_mining_cgminer(ip, port):
+    """Comando 'ascdisable' da API cgminer padrao - desativa o(s) ASC sem
+    matar o processo (diferente de 'quit', que derrubaria a API inteira e
+    exigiria acesso fisico/reboot pra voltar). Mesma familia de socket usada
+    por reboot/restart em Avalon e Whatsminer; em Antminer so funciona se o
+    firmware expuser essa API (nem todo modo do VNish expoe)."""
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(ip, port), timeout=SOCKET_TIMEOUT)
+    try:
+        writer.write(json.dumps({"command": "ascdisable", "parameter": "0"}).encode())
+        await writer.drain()
+        raw = await asyncio.wait_for(reader.read(8192), timeout=SOCKET_TIMEOUT)
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+    text = raw.decode("utf-8", errors="ignore").replace("\x00", "").strip()
+    if not text or any(word in text.lower() for word in ("error", "unknown", "invalid")):
+        raise RuntimeError(text or "API não confirmou o comando.")
+    return f"Comando 'ascdisable' aceito: {text[:200]}"
+
+
+async def stop_mining_miner(miner, credentials=None):
+    """Para a mineracao sem reiniciar a maquina, via API cgminer padrao (porta
+    4028). NAO CONFIRMADO contra hardware real em todos os firmwares - alguns
+    modos do VNish (Antminer) nao expoem essa API, so a HTTP. Quando falha,
+    devolve mensagem clara em vez de fingir sucesso; reiniciar a maquina
+    sempre retoma a mineracao."""
+    ip = miner.get("ip")
+    port = int(miner.get("port") or miner.get("protocol_port") or 4028)
+    name = miner.get("name") or ip
+    result = {"miner_id": miner.get("id"), "name": name, "success": False, "message": ""}
+    try:
+        message = await _stop_mining_cgminer(ip, port)
+        result.update(success=True, message=message)
+    except Exception as error:
+        result["message"] = (
+            f"{error} — o comando usa a API cgminer padrão (porta 4028); "
+            "se este firmware não a expõe, parar a mineração remotamente não é "
+            "possível ainda. Reiniciar a máquina sempre retoma a mineração."
+        )[:500]
+    return result
+
+
 async def apply_pool_config(miner, credentials, pools):
     """Aplica até três pools em uma ASIC e devolve resultado sem credenciais."""
     name = miner.get("name") or miner.get("ip") or "Máquina"

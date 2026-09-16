@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from miners import apply_pool_config, poll_miner, reboot_miner
+from miners import apply_pool_config, poll_miner, reboot_miner, stop_mining_miner
 
 AGENT_VERSION = "0.5.1"
 
@@ -157,6 +157,10 @@ async def process_command(client: httpx.AsyncClient, commands_url: str, headers:
             print(f"Reiniciando {len(miners)} maquina(s)...", flush=True)
             results = await asyncio.gather(*(reboot_miner(miner, miner.get("credentials")) for miner in miners))
             label = "Reinício"
+        elif kind == "stop_mining":
+            print(f"Parando mineracao em {len(miners)} maquina(s)...", flush=True)
+            results = await asyncio.gather(*(stop_mining_miner(miner, miner.get("credentials")) for miner in miners))
+            label = "Parar mineração"
         else:
             return
 

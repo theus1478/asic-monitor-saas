@@ -1,5 +1,6 @@
 import { hashAgentToken } from "../../../../lib/agent-token";
 import { createServiceClient } from "../../../../lib/supabase/service";
+import { processTelemetryBatch } from "../../../../lib/asic-alerts/engine";
 
 export const runtime = "nodejs";
 
@@ -31,13 +32,14 @@ export async function POST(request: Request) {
   const tokenHash = hashAgentToken(token);
   const { data: agent } = await supabase
     .from("agents")
-    .select("id, farm_id")
+    .select("id, farm_id, farms(organization_id)")
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
   if (!agent) {
     return Response.json({ error: "Token inválido." }, { status: 401 });
   }
+  const organizationId = (agent.farms as unknown as { organization_id: string } | null)?.organization_id ?? null;
 
   const body = await request.json().catch(() => null);
   if (!body || !Array.isArray(body.metrics)) {
@@ -67,7 +69,36 @@ export async function POST(request: Request) {
     }));
 
   if (rows.length > 0) {
+    // Le o estado anterior de cada maquina ANTES de inserir a leitura nova -
+    // o motor de regras precisa comparar "antes vs agora" (reboot, hashboard
+    // que sumiu etc.), entao a ordem importa aqui.
+    const rowMinerIds = [...new Set(rows.map((r) => r.miner_id))] as string[];
+    const { data: previousRows } = await supabase
+      .from("miner_metrics")
+      .select("miner_id, online, hashrate_ths, temperature_c, payload")
+      .in("miner_id", rowMinerIds)
+      .order("observed_at", { ascending: false })
+      .limit(rowMinerIds.length * 2);
+    const previousByMiner = new Map<string, { online: boolean; hashrate_ths: number | null; temperature_c: number | null; payload: Record<string, unknown> } | null>();
+    for (const row of previousRows ?? []) {
+      if (!previousByMiner.has(row.miner_id)) previousByMiner.set(row.miner_id, row as { online: boolean; hashrate_ths: number | null; temperature_c: number | null; payload: Record<string, unknown> });
+    }
+
     await supabase.from("miner_metrics").insert(rows);
+
+    if (organizationId) {
+      // Falha aqui nunca deve derrubar a resposta pro coletor - a telemetria
+      // ja foi gravada, o motor de alertas roda "best effort" por cima dela.
+      try {
+        await processTelemetryBatch(supabase, {
+          organizationId, farmId: agent.farm_id,
+          previousByMiner,
+          rows: rows.map((r) => ({ miner_id: r.miner_id as string, online: r.online, hashrate_ths: r.hashrate_ths, temperature_c: r.temperature_c, payload: r.payload as Record<string, unknown> })),
+        });
+      } catch (error) {
+        console.error("Falha ao processar motor de alertas", error);
+      }
+    }
   }
 
   await supabase

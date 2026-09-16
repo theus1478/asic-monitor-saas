@@ -36,10 +36,10 @@ export async function GET(request: Request) {
   if (!claimed) return Response.json({ command: null });
 
   try {
-    if (claimed.kind === "reboot") {
+    if (claimed.kind === "reboot" || claimed.kind === "stop_mining") {
       const payload = decryptPoolCommand<RebootCommandPayload>(claimed.encrypted_payload);
       const { data: miners } = await service.from("miners").select("id, name, ip, protocol_port, type").eq("farm_id", agent.farm_id).in("id", payload.minerIds);
-      return Response.json({ command: { id: claimed.id, kind: "reboot", miners: (miners ?? []).map((miner) => ({ ...miner, port: miner.protocol_port, credentials: payload.credentialsByMiner?.[miner.id] })) } });
+      return Response.json({ command: { id: claimed.id, kind: claimed.kind, miners: (miners ?? []).map((miner) => ({ ...miner, port: miner.protocol_port, credentials: payload.credentialsByMiner?.[miner.id] })) } });
     }
     const payload = decryptPoolCommand<PoolCommandPayload>(claimed.encrypted_payload);
     const { data: miners } = await service.from("miners").select("id, name, ip, protocol_port, type").eq("farm_id", agent.farm_id).in("id", payload.minerIds);

@@ -2,14 +2,22 @@ import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { PageHeader, Shell } from "../components";
 import { getOrganizationId } from "../../lib/org-data";
+import { createServiceClient } from "../../lib/supabase/service";
 import { currentTimeMs } from "../../lib/time";
+import { sweepOfflineIncidents } from "../../lib/asic-alerts/offline-sweep";
 import { LiveRefresh } from "../farms/live-refresh";
 
 type Miner = { id: string; farm_id: string; name: string };
 type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; power_w: number | null; observed_at: string };
-type Board = { name?: string; hashrate_ths?: number | null };
-type AttentionPayload = { miner_id: string; payload: { boards?: Board[]; error?: string | null } | null };
+type Incident = { id: string; miner_id: string; rule_key: string; severity: "info" | "warning" | "critical"; title: string; description: string; last_detected_at: string };
 const FRESH_METRIC_MS = 90_000;
+
+function incidentAge(iso: string) {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}min`;
+  return `${Math.floor(s / 3600)}h`;
+}
 
 function formatHashrate(ths: number) {
   if (ths >= 1000) return `${(ths / 1000).toFixed(2)} PH/s`;
@@ -19,6 +27,13 @@ function formatHashrate(ths: number) {
 export default async function DashboardPage() {
   const t = await getTranslations("dashboard");
   const { supabase, organizationId } = await getOrganizationId();
+
+  // Varredura "preguiçosa" de ASICs offline (ver lib/asic-alerts/offline-sweep.ts) -
+  // roda toda vez que a Visão Geral carrega, mesmo padrão já usado pela liberação
+  // de comissões de afiliado. Usa o client de serviço porque grava ocorrências.
+  if (organizationId) {
+    try { await sweepOfflineIncidents(createServiceClient(), organizationId); } catch (error) { console.error("Falha na varredura de offline", error); }
+  }
 
   const { data: farms } = organizationId
     ? await supabase.from("farms").select("id, name, timezone").eq("organization_id", organizationId).order("created_at")
@@ -79,40 +94,19 @@ export default async function DashboardPage() {
     return { ...farm, online, total: farmMiners.length, hashrateThs };
   });
 
-  // Só entra aqui quem não está produzindo hashrate nenhum (offline, ou
-  // online mas reportando 0) - não é mais "hashrate baixo" por um limite
-  // arbitrário, já que máquinas legítimas podem ter hashrate baixo por design.
-  const attention = minerList
-    .filter((m) => !isMinerOnline(m.id) || (latestByMiner.get(m.id)?.hashrate_ths ?? 0) <= 0)
-    .slice(0, 4);
-  const attentionIds = attention.map((m) => m.id);
-  const { data: attentionPayloads } = attentionIds.length
-    ? await supabase
-        .from("miner_metrics")
-        .select("miner_id, payload")
-        .in("miner_id", attentionIds)
-        .order("observed_at", { ascending: false })
-        .limit(attentionIds.length * 3)
-    : { data: [] as AttentionPayload[] };
-  const latestPayloadByMiner = new Map<string, AttentionPayload["payload"]>();
-  for (const row of attentionPayloads ?? []) {
-    if (!latestPayloadByMiner.has(row.miner_id)) latestPayloadByMiner.set(row.miner_id, row.payload);
-  }
+  // Ocorrências ativas de verdade (ver lib/asic-alerts) - não mais um cálculo
+  // ad-hoc por cima da telemetria bruta. RLS já escopa por organização.
+  const { data: incidentRows } = minerIds.length
+    ? await supabase.from("asic_incidents").select("id, miner_id, rule_key, severity, title, description, last_detected_at").eq("status", "active").in("miner_id", minerIds).order("last_detected_at", { ascending: false })
+    : { data: [] as Incident[] };
+  const incidents = (incidentRows ?? []) as Incident[];
+  const minerNameById = new Map(minerList.map((m) => [m.id, m.name]));
+  const severityRank = { critical: 2, warning: 1, info: 0 } as const;
+  const attention = [...incidents].sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || new Date(b.last_detected_at).getTime() - new Date(a.last_detected_at).getTime()).slice(0, 6);
 
-  function attentionReason(minerId: string, online: boolean): string {
-    if (!online) return t("offlineOrUnresponsive");
-    const payload = latestPayloadByMiner.get(minerId);
-    const boards = Array.isArray(payload?.boards) ? payload.boards : [];
-    const failedBoards = boards
-      .map((board, index) => ({ index, hashrate: board.hashrate_ths }))
-      .filter((board) => !(typeof board.hashrate === "number" && board.hashrate > 0));
-    if (boards.length > 0 && failedBoards.length > 0 && failedBoards.length < boards.length) {
-      return t("hashboardFailure", { boards: failedBoards.map((board) => board.index + 1).join(", ") });
-    }
-    if (boards.length > 0 && failedBoards.length === boards.length) return t("allHashboardsFailure");
-    if (payload?.error) return String(payload.error).slice(0, 140);
-    return t("noHashrateGeneric");
-  }
+  const minersWithAlert = new Set(incidents.map((i) => i.miner_id));
+  const minersWithCritical = new Set(incidents.filter((i) => i.severity === "critical").map((i) => i.miner_id));
+  const minersWithWarningOnly = new Set([...minersWithAlert].filter((id) => !minersWithCritical.has(id)));
 
   // Série real: agrupa leituras pelo mesmo observed_at (um lote = um ciclo do agente)
   // e soma o hashrate de todas as máquinas naquele instante.
@@ -152,6 +146,12 @@ export default async function DashboardPage() {
       <article className="card"><p className="eyebrow">{t("registeredMachines")}</p><div className="metric">{activeMachines}</div><p className="muted">{t("countTowardLicense")}</p></article>
       <article className="card"><p className="eyebrow">{t("recordedConsumption")}</p><div className="metric">{recordedKwh.toFixed(2)}<span> kWh</span></div><p className="muted">{t("sumOfAllFarms")}</p></article>
     </section>
+    <section className="metrics-grid">
+      <Link href="/farms" className="card kpi-link"><p className="eyebrow">{t("kpiOffline")}</p><div className="metric">{activeMachines - onlineMachines}</div></Link>
+      <Link href="/incidents?status=active" className="card kpi-link"><p className="eyebrow">{t("kpiWithAlert")}</p><div className="metric">{minersWithAlert.size}</div></Link>
+      <Link href="/incidents?status=active&severity=critical" className="card kpi-link"><p className="eyebrow">{t("kpiCritical")}</p><div className="metric">{minersWithCritical.size}</div></Link>
+      <Link href="/incidents?status=active&severity=warning" className="card kpi-link"><p className="eyebrow">{t("kpiWarning")}</p><div className="metric">{minersWithWarningOnly.size}</div></Link>
+    </section>
     <section className="content-grid">
       <article className="card chart">
         <div className="section-title"><div><h2>{t("recentHashrate")}</h2><p>{t("sumPerCycle")}</p></div><b>{formatHashrate(totalHashrateThs)}</b></div>
@@ -163,8 +163,8 @@ export default async function DashboardPage() {
         <h2>{t("needsAttention")}</h2>
         {attention.length === 0
           ? <p className="muted">{t("allOnlineAndHealthy")}</p>
-          : attention.map((m) => { const online = isMinerOnline(m.id); return <div className="alert-row" key={m.id}><span className={`status-dot ${online ? "warn" : "off"}`} />{m.name}<small>{attentionReason(m.id, online)}</small></div>; })}
-        <Link href="/farms" className="text-link">{t("seeAllMachines")}</Link>
+          : attention.map((incident) => <div className="alert-row" key={incident.id}><span className={`status-dot ${incident.severity === "critical" ? "off" : "warn"}`} />{minerNameById.get(incident.miner_id) ?? "—"}<small>{incident.title} · {incidentAge(incident.last_detected_at)}</small></div>)}
+        <Link href="/incidents" className="text-link">{t("seeAllIncidents")}</Link>
       </article>
     </section>
     <section>

@@ -159,6 +159,56 @@ combustível (paga a taxa). Um comprometimento da carteira de combustível não 
 acesso aos fundos do cliente nem da tesouraria — na pior hipótese, alguém gasta
 o pouco SOL nela depositado para cobrir taxas.
 
+## Ocorrências, alertas e logs em tempo real (`lib/asic-alerts/`)
+
+Motor de regras centralizado que roda em cima da telemetria já existente —
+não é um sistema paralelo. Fluxo: `POST /api/agent/metrics` insere a
+leitura, lê o estado anterior da mesma máquina, normaliza os dois
+(`normalize.ts`) e roda cada regra (`rules.ts`) comparando contra a
+configuração da organização (`alert_settings`, com defaults sensatos e
+personalizável por org). Cada regra que "bate" vira uma linha em
+`asic_incidents` — uma só por `(miner_id, rule_key)` enquanto o problema
+persiste (índice único parcial), atualizada a cada ciclo em vez de duplicada;
+quando a regra para de bater, a ocorrência é resolvida automaticamente e um
+evento de recuperação é gravado. `asic_events` guarda o log curado (o que
+aparece na tela "Eventos recentes" da máquina); não existe uma tabela de log
+bruto — o payload que o agente já envia a cada ciclo (`miner_metrics.payload`)
+já é o dado bruto, reconstituído sob demanda em vez de duplicado.
+
+- **Regras implementadas:** `reboot_detected` (queda de uptime), `hashboard_failure`
+  (placa que zera ou some do relatório), `zero_hashrate`, `hashrate_degraded`
+  (contra a própria média saudável da máquina — `miners.baseline_hashrate_ths`,
+  uma média móvel lenta, não um catálogo fixo de TH/s por modelo, que seria
+  inventado), `temperature_high` (dois níveis, warning/critical) e `fan_failure`
+  (best-effort, só quando o firmware reporta RPM).
+- **`miner_offline`** não dá pra detectar dentro do POST (é ausência de dado que
+  importa) — usa o mesmo padrão já existente em `lib/affiliate.ts`
+  (`releaseMaturedCommissions`): checagem "preguiçosa" a cada carregamento da
+  Visão Geral/página da fazenda (`offline-sweep.ts`), com um cron diário como
+  backstop (`/api/cron/asic-health-sweep` — diário porque o único cron já
+  existente no projeto roda 1x/dia, sinal de que não dá pra agendar algo mais
+  frequente no plano atual do Vercel).
+- **Deduplicação e anti-spam:** e-mail só sai se `alert_settings.email_enabled`,
+  a regra não estiver desabilitada, e (a) é a primeira detecção ou (b) já
+  passou `reminder_cooldown_minutes` desde o último e-mail daquela ocorrência.
+  `hashrate_degraded` também exige a ocorrência ativa há pelo menos
+  `hashrate_window_minutes` antes do primeiro e-mail (não é o valor isolado de
+  uma leitura). Falha no envio (Resend, via `email.ts`) nunca bloqueia o resto
+  do pipeline nem marca a ocorrência como notificada — fica registrada em
+  `alert_notifications` como `failed` e a próxima tentativa não espera o
+  cooldown inteiro.
+- **Reconhecer ≠ resolver:** `status` tem três valores (`active`, `acknowledged`,
+  `resolved`); reconhecer só marca quem/quando (`acknowledged_by/_at`) — o
+  motor continua atualizando e pode resolver normalmente uma ocorrência
+  reconhecida (por isso o índice único cobre `active` e `acknowledged` juntos).
+- **Saúde da máquina** (🟢🟡🔴⚫ no `farms/[id]`) é sempre derivada das
+  ocorrências ativas daquela máquina, nunca um campo separado que possa
+  divergir delas.
+
+Requer `RESEND_API_KEY` (e opcionalmente `ALERT_EMAIL_FROM`) configurada no
+Vercel — sem ela, o motor continua registrando ocorrências normalmente, só o
+e-mail fica marcado como `skipped`.
+
 ## Fases
 
 1. Contas, organizações, fazendas, serviço coletor e ingestão de métricas.

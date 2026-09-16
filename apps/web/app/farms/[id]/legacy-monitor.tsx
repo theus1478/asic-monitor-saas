@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { PoolCommandHistory, PoolModal, type PoolCommandSummary } from "./pool-control";
 
 export type Board = { name?: string; chip_temp_c?: number | null; pcb_temp_c?: number | null; hashrate_ths?: number | null };
+export type IncidentSummary = { ruleKey: string; severity: "info" | "warning" | "critical"; title: string };
+export type EventRow = { id: number; miner_id: string; observed_at: string; level: "info" | "warning" | "error" | "critical"; category: string; message: string };
 export type MonitorMiner = {
   id: string; name: string; ip: string; port: number; type: string; online: boolean; observed_at: string | null;
   hashrate_ths?: number | null; hashrate_avg_ths?: number | null; temp_c?: number | null; power_w?: number | null;
@@ -14,6 +16,7 @@ export type MonitorMiner = {
   current_estimated?: boolean; model?: string | null; uptime_s?: number | null; accepted?: number | null; rejected?: number | null;
   pool?: string | null; worker?: string | null; cooling_mode?: string | null; cooling_inferred?: boolean; fans_rpm?: number[];
   boards?: Board[]; error?: string | null; licensed?: boolean; devfee_pct?: number | null;
+  health?: "ok" | "warning" | "critical" | "offline"; incidents?: IncidentSummary[];
 };
 type DevfeeResult = { ok: boolean; message: string };
 type HistoryPoint = { observedAt: string; hashrate: number; power: number };
@@ -110,17 +113,20 @@ function Result({ css, label, value, sub }: { css: string; label: string; value:
 
 type RebootResult = { ok: boolean; message: string };
 
-export function LegacyMonitor({ farmId, farmName, timezone, miners, history, poolCommands, addMinerAction, deleteMinerAction, rebootMinerAction, updateDevfeeAction, agentPanel }: { farmId: string; farmName: string; timezone: string | null; miners: MonitorMiner[]; history: HistoryPoint[]; poolCommands: PoolCommandSummary[]; addMinerAction: (formData: FormData) => void | Promise<void>; deleteMinerAction: (minerId: string) => void | Promise<void>; rebootMinerAction: (minerId: string) => Promise<RebootResult>; updateDevfeeAction: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult>; agentPanel: ReactNode }) {
+export function LegacyMonitor({ farmId, farmName, timezone, miners, history, events, initialMinerId, poolCommands, addMinerAction, deleteMinerAction, rebootMinerAction, stopMiningAction, updateDevfeeAction, agentPanel }: { farmId: string; farmName: string; timezone: string | null; miners: MonitorMiner[]; history: HistoryPoint[]; events: EventRow[]; initialMinerId: string | null; poolCommands: PoolCommandSummary[]; addMinerAction: (formData: FormData) => void | Promise<void>; deleteMinerAction: (minerId: string) => void | Promise<void>; rebootMinerAction: (minerId: string) => Promise<RebootResult>; stopMiningAction: (minerId: string) => Promise<RebootResult>; updateDevfeeAction: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult>; agentPanel: ReactNode }) {
   const t = useTranslations("farmDetail");
   const router = useRouter(); const [pending, startTransition] = useTransition();
   const [view, setView] = useState<View>("table"), [range, setRange] = useState(30), [query, setQuery] = useState(""), [type, setType] = useState(""), [status, setStatus] = useState(""), [sortKey, setSortKey] = useState<SortKey>("name"), [direction, setDirection] = useState(1), [selected, setSelected] = useState<MonitorMiner | null>(null), [addOpen, setAddOpen] = useState(false), [setup, setSetup] = useState(false), [poolOpen, setPoolOpen] = useState(false), [poolMinerId, setPoolMinerId] = useState<string | null>(null);
   useEffect(() => { const timer = window.setInterval(() => { if (document.visibilityState === "visible") startTransition(() => router.refresh()); }, 15000); return () => clearInterval(timer); }, [router]);
+  // Deep link do e-mail de alerta (?miner=ID): abre o modal direto na máquina.
+  useEffect(() => { if (initialMinerId) { const match = miners.find((m) => m.id === initialMinerId); if (match) setSelected(match); } }, [initialMinerId, miners]);
   const rows = useMemo(() => miners.filter((miner) => { const hay = `${miner.name} ${miner.ip} ${miner.pool ?? ""} ${miner.model ?? ""}`.toLowerCase(); return (!query || hay.includes(query.toLowerCase())) && (!type || miner.type === type) && (!status || (status === "on") === miner.online); }).sort((a, b) => { const left = a[sortKey], right = b[sortKey]; if (typeof left === "string" && typeof right === "string") return direction * left.localeCompare(right); return direction * ((n(left) ?? -Infinity) - (n(right) ?? -Infinity)); }), [miners, query, type, status, sortKey, direction]);
   const online = miners.filter((miner) => miner.online), totalHash = online.reduce((sum, miner) => sum + (n(miner.hashrate_ths) ?? 0), 0), totalPower = online.reduce((sum, miner) => sum + (n(miner.power_w) ?? 0), 0), latest = miners.map((miner) => miner.observed_at).filter(Boolean).sort().at(-1) ?? null, cutoff = Date.now() - range * 60000, chart = history.filter((point) => new Date(point.observedAt).getTime() >= cutoff);
   const sort = (key: SortKey) => { if (key === sortKey) setDirection(-direction); else { setSortKey(key); setDirection(1); } };
   const th = (label: string, key?: SortKey) => <th onClick={() => key && sort(key)}>{label}{key === sortKey && <span className="lm-ar"> {direction > 0 ? "▲" : "▼"}</span>}</th>;
   const removeMiner = (minerId: string) => startTransition(async () => { await deleteMinerAction(minerId); setSelected(null); router.refresh(); });
   const restartMiner = (minerId: string) => rebootMinerAction(minerId);
+  const stopMining = (minerId: string) => stopMiningAction(minerId);
   return <div className="legacy-monitor">
     <header className="lm-header"><Link className="lm-brand" href="/dashboard"><img src="/favicon.svg" width="38" height="38" alt="" /><span><b>ASIC</b><em>Monitor</em></span></Link><nav className="lm-viewtoggle"><button className={view === "table" ? "active" : ""} onClick={() => setView("table")}>{t("fleet")}</button><button className={view === "cards" ? "active" : ""} onClick={() => setView("cards")}>{t("cards")}</button><button className={view === "calc" ? "active" : ""} onClick={() => setView("calc")}>{t("income")}</button></nav><div className="lm-status"><span>●</span> {t("onlineStatus", { online: online.length, total: miners.length, age: age(latest) })}{pending && t("updating")}</div><button className="lm-logout" onClick={() => setSetup(!setup)}>{t("setupButton")}</button><Link className="lm-logout" href="/farms">{t("farmsLink")}</Link></header>
     <main className="lm-wrap"><div className="lm-farm"><b>{farmName}</b>{timezone && <span>{timezone}</span>}</div><section className="lm-kpis"><Kpi css="lm-k-hash" label={t("totalHashrate")} value={totalHash.toFixed(2)} unit="TH/s" /><Kpi css="lm-k-pow" label={t("totalConsumption")} value={(totalPower / 1000).toFixed(2)} unit="kW" /><Kpi css="lm-k-eff" label={t("efficiency")} value={totalHash ? (totalPower / totalHash).toFixed(1) : "—"} unit="J/TH" /><Kpi css="lm-k-on" label={t("online")} value={`${online.length}`} unit={`/ ${miners.length}`} /><Kpi css="lm-k-off" label={t("offline")} value={`${miners.length - online.length}`} /></section>
@@ -128,23 +134,25 @@ export function LegacyMonitor({ farmId, farmName, timezone, miners, history, poo
       {view === "calc" ? <Calculator miners={miners} /> : <><div className="lm-bar"><input type="search" placeholder={t("filterPlaceholder")} value={query} onChange={(e) => setQuery(e.target.value)} /><select value={type} onChange={(e) => setType(e.target.value)}><option value="">{t("allTypes")}</option><option value="antminer">Antminer</option><option value="whatsminer">Whatsminer</option><option value="avalon">Avalon</option></select><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">{t("onlineAndOffline")}</option><option value="on">{t("onlyOnline")}</option><option value="off">{t("onlyOffline")}</option></select><span /><button className="lm-btn lm-pool-button" onClick={() => { setPoolMinerId(null); setPoolOpen(true); }}>⇄ {t("changePool")}</button><button className="lm-btn lm-primary" onClick={() => setAddOpen(true)}>+ {t("addMachine")}</button><button className="lm-btn" onClick={() => startTransition(() => router.refresh())}>↻ {t("refresh")}</button></div>{view === "table" ? <div className="lm-tablewrap"><div className="lm-scroll"><table><thead><tr>{th(t("colMachine"), "name")}{th(t("colIp"), "ip")}{th(t("colType"), "type")}{th("TH/s", "hashrate_ths")}{th(t("consumptionLabel"), "power_w")}{th(t("colVoltageCurrent"))}{th(t("colHashboards"))}{th(t("colCooling"))}{th(t("colUptime"), "uptime_s")}{th(t("colRejected"), "rejected")}</tr></thead><tbody>{rows.length ? rows.map((miner) => <MinerRow key={miner.id} miner={miner} open={() => setSelected(miner)} />) : <tr><td colSpan={10} className="lm-empty">{t("noMachinesMatch")}</td></tr>}</tbody></table></div></div> : <div className="lm-cards">{rows.map((miner) => <MinerCard key={miner.id} miner={miner} open={() => setSelected(miner)} />)}</div>}</>}
       {setup && <section className="lm-setup">{agentPanel}</section>}
       <PoolCommandHistory commands={poolCommands} />
-    </main>{(selected || addOpen) && <Modal miner={selected} close={() => { setSelected(null); setAddOpen(false); }} addAction={addMinerAction} changePool={(minerId) => { setSelected(null); setPoolMinerId(minerId); setPoolOpen(true); }} deleteMiner={removeMiner} rebootMiner={restartMiner} updateDevfee={updateDevfeeAction} />}
+    </main>{(selected || addOpen) && <Modal miner={selected} events={selected ? events.filter((e) => e.miner_id === selected.id) : []} close={() => { setSelected(null); setAddOpen(false); }} addAction={addMinerAction} changePool={(minerId) => { setSelected(null); setPoolMinerId(minerId); setPoolOpen(true); }} deleteMiner={removeMiner} rebootMiner={restartMiner} stopMining={stopMining} updateDevfee={updateDevfeeAction} />}
     {poolOpen && <PoolModal key={poolMinerId ?? "batch"} farmId={farmId} miners={miners} initialMinerId={poolMinerId} onClose={() => setPoolOpen(false)} />}
   </div>;
 }
 
 function Kpi({ css, label, value, unit }: { css: string; label: string; value: string; unit?: string }) { return <div className={`lm-kpi ${css}`}><span>{label}</span><strong>{value}{unit && <small> {unit}</small>}</strong></div>; }
+/** Estado de saúde calculado a partir das ocorrências ativas (ver page.tsx) - nunca um status separado que possa divergir delas. */
+const healthDotClass = (miner: MonitorMiner) => miner.health === "critical" ? "lm-off" : miner.health === "warning" ? "lm-warn" : miner.health === "offline" ? "lm-offline-dot" : miner.online ? "lm-on" : "lm-off";
 function MinerRow({ miner, open }: { miner: MonitorMiner; open: () => void }) {
   const t = useTranslations("farmDetail");
   const locale = useLocale();
   if (miner.licensed === false) return <tr className="lm-unlicensed" onClick={open}><td><span className="lm-dot lm-off" /><b>{miner.name}</b></td><td className="lm-num lm-dim">{miner.ip}</td><td><span className="lm-tag">{miner.type}</span></td><td colSpan={7} className="lm-license-cell">{t("awaitingLicense")}<Link href="/billing" onClick={(e) => e.stopPropagation()}>{t("buyLicense")}</Link></td></tr>;
-  return <tr onClick={open}><td><span className={`lm-dot ${miner.online ? "lm-on" : "lm-off"}`} /><b>{miner.name}</b></td><td className="lm-num lm-dim"><a className="lm-iplink" href={`http://${miner.ip}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>{miner.ip}</a></td><td><span className="lm-tag">{miner.type}</span></td><td className="lm-num">{hash(miner.hashrate_ths)}</td><td className="lm-num">{watts(miner.power_w, locale)} {miner.power_estimated && <span className="lm-est">{t("powerEstimatedTag")}</span>}</td><td className="lm-num"><VA miner={miner} /></td><td><ThermalStrip miner={miner} /></td><td><Cooling miner={miner} /></td><td className="lm-num lm-dim">{uptime(miner.uptime_s)}</td><td className={`lm-num ${n(miner.rejected) ? "lm-warm" : "lm-dim"}`}>{n(miner.rejected) ?? 0}</td></tr>;
+  return <tr onClick={open}><td><span className={`lm-dot ${healthDotClass(miner)}`} /><b>{miner.name}</b></td><td className="lm-num lm-dim"><a className="lm-iplink" href={`http://${miner.ip}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>{miner.ip}</a></td><td><span className="lm-tag">{miner.type}</span></td><td className="lm-num">{hash(miner.hashrate_ths)}</td><td className="lm-num">{watts(miner.power_w, locale)} {miner.power_estimated && <span className="lm-est">{t("powerEstimatedTag")}</span>}</td><td className="lm-num"><VA miner={miner} /></td><td><ThermalStrip miner={miner} /></td><td><Cooling miner={miner} /></td><td className="lm-num lm-dim">{uptime(miner.uptime_s)}</td><td className={`lm-num ${n(miner.rejected) ? "lm-warm" : "lm-dim"}`}>{n(miner.rejected) ?? 0}</td></tr>;
 }
 function MinerCard({ miner, open }: { miner: MonitorMiner; open: () => void }) {
   const t = useTranslations("farmDetail");
   const locale = useLocale();
   if (miner.licensed === false) return <article className="lm-mcard lm-unlicensed" onClick={open}><div className="lm-mc-top"><span className="lm-dot lm-off" /><div><b>{miner.name}</b><small>{miner.ip} · {miner.type}</small></div></div><p className="lm-license-cell">{t("awaitingLicense")}<Link href="/billing" onClick={(e) => e.stopPropagation()}>{t("buyLicense")}</Link></p></article>;
-  return <article className={`lm-mcard ${miner.online ? "" : "lm-offline"}`} onClick={open}><div className="lm-mc-top"><span className={`lm-dot ${miner.online ? "lm-on" : "lm-off"}`} /><div><b>{miner.name}</b><small>{miner.ip} · {miner.model ?? miner.type}</small></div><span className="lm-tag">{miner.type}</span></div><div className="lm-mc-metrics"><div><span>{t("hashrateLabel")}</span><strong>{hash(miner.hashrate_ths)}<small> TH/s</small></strong></div><div><span>{t("consumptionLabel")}</span><strong>{watts(miner.power_w, locale)}<small> W</small></strong></div></div><p className="lm-strip-label">{t("hashboardsLabel")}</p><ThermalStrip miner={miner} large /><div className="lm-card-cooling"><Cooling miner={miner} /></div><footer><VA miner={miner} /><span>{uptime(miner.uptime_s)}</span><span>{t("rejectedShort", { count: n(miner.rejected) ?? 0 })}</span></footer></article>;
+  return <article className={`lm-mcard ${miner.online ? "" : "lm-offline"}`} onClick={open}><div className="lm-mc-top"><span className={`lm-dot ${healthDotClass(miner)}`} /><div><b>{miner.name}</b><small>{miner.ip} · {miner.model ?? miner.type}</small></div><span className="lm-tag">{miner.type}</span></div><div className="lm-mc-metrics"><div><span>{t("hashrateLabel")}</span><strong>{hash(miner.hashrate_ths)}<small> TH/s</small></strong></div><div><span>{t("consumptionLabel")}</span><strong>{watts(miner.power_w, locale)}<small> W</small></strong></div></div><p className="lm-strip-label">{t("hashboardsLabel")}</p><ThermalStrip miner={miner} large /><div className="lm-card-cooling"><Cooling miner={miner} /></div><footer><VA miner={miner} /><span>{uptime(miner.uptime_s)}</span><span>{t("rejectedShort", { count: n(miner.rejected) ?? 0 })}</span></footer></article>;
 }
 function DevfeeEditor({ miner, updateDevfee }: { miner: MonitorMiner; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
   const t = useTranslations("farmDetail");
@@ -170,30 +178,69 @@ function DevfeeEditor({ miner, updateDevfee }: { miner: MonitorMiner; updateDevf
   </div>;
 }
 
-function Modal({ miner, close, addAction, changePool, deleteMiner, rebootMiner, updateDevfee }: { miner: MonitorMiner | null; close: () => void; addAction: (formData: FormData) => void | Promise<void>; changePool: (minerId: string) => void; deleteMiner: (minerId: string) => void; rebootMiner: (minerId: string) => Promise<RebootResult>; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
+const EVENT_LEVEL_CLASS: Record<string, string> = { info: "lm-log-info", warning: "lm-log-warning", error: "lm-log-error", critical: "lm-log-critical" };
+
+function EventsPanel({ events }: { events: EventRow[] }) {
+  const t = useTranslations("farmDetail");
+  const locale = useLocale();
+  const [query, setQuery] = useState(""), [level, setLevel] = useState("");
+  const filtered = useMemo(() => events.filter((e) => (!level || e.level === level) && (!query || e.message.toLowerCase().includes(query.toLowerCase()))), [events, query, level]);
+  return <div className="lm-events">
+    <div className="lm-events-bar">
+      <input type="search" placeholder={t("eventsSearchPlaceholder")} value={query} onChange={(e) => setQuery(e.target.value)} />
+      <select value={level} onChange={(e) => setLevel(e.target.value)}>
+        <option value="">{t("eventsAllLevels")}</option>
+        <option value="critical">CRITICAL</option><option value="error">ERROR</option><option value="warning">WARNING</option><option value="info">INFO</option>
+      </select>
+    </div>
+    <div className="lm-log-console">
+      {filtered.length === 0
+        ? <p className="lm-log-empty">{t("eventsEmpty")}</p>
+        : filtered.map((event) => <div key={event.id} className={`lm-log-line ${EVENT_LEVEL_CLASS[event.level] ?? ""}`}>
+            <span className="lm-log-time">{new Date(event.observed_at).toLocaleTimeString(locale)}</span>
+            <span className="lm-log-level">{event.level.toUpperCase()}</span>
+            <span className="lm-log-message">{event.message}</span>
+          </div>)}
+    </div>
+  </div>;
+}
+
+function Modal({ miner, events, close, addAction, changePool, deleteMiner, rebootMiner, stopMining, updateDevfee }: { miner: MonitorMiner | null; events: EventRow[]; close: () => void; addAction: (formData: FormData) => void | Promise<void>; changePool: (minerId: string) => void; deleteMiner: (minerId: string) => void; rebootMiner: (minerId: string) => Promise<RebootResult>; stopMining: (minerId: string) => Promise<RebootResult>; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
   const t = useTranslations("farmDetail");
   const locale = useLocale();
   const [rebooting, setRebooting] = useState(false);
   const [rebootFeedback, setRebootFeedback] = useState<RebootResult | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const [stopFeedback, setStopFeedback] = useState<RebootResult | null>(null);
   const doReboot = async () => {
     if (!miner) return;
     setRebooting(true); setRebootFeedback(null);
     const result = await rebootMiner(miner.id);
     setRebootFeedback(result); setRebooting(false);
   };
+  const doStopMining = async () => {
+    if (!miner) return;
+    if (!window.confirm(t("stopMiningConfirm", { name: miner.name }))) return;
+    setStopping(true); setStopFeedback(null);
+    const result = await stopMining(miner.id);
+    setStopFeedback(result); setStopping(false);
+  };
   const doDelete = () => { if (miner && window.confirm(t("deleteMachineConfirm", { name: miner.name }))) deleteMiner(miner.id); };
   return <div className="lm-overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}><div className="lm-modal"><button className="lm-close" onClick={close} aria-label={t("closeModal")}>×</button>
     {miner ? <>
       <h3>{miner.name}</h3>
       <p className="lm-sub">{miner.type} · {miner.ip}:{miner.port} · {miner.licensed === false ? t("awaitingLicenseStatus") : miner.online ? t("onlineStatusWord") : t("offlineStatusWord")}{miner.error && ` · ${miner.error}`}</p>
+      {!!miner.incidents?.length && <div className="lm-incident-badges">{miner.incidents.map((incident) => <span key={incident.ruleKey} className={`badge ${incident.severity === "critical" ? "" : incident.severity === "warning" ? "warning" : "neutral"}`} style={incident.severity === "critical" ? { background: "#ff5d6c1f", color: "#ff9aa3" } : undefined}>{incident.title}</span>)}</div>}
       {miner.licensed === false
         ? <p className="lm-license-cell">{t("licenseBlockedBody")}<Link href="/billing">{t("buyMoreLicenses")}</Link>.</p>
         : <>
             <div className="lm-kv"><Detail label={t("detailModel")} value={miner.model ?? "—"} /><Detail label={t("detailCurrentHashrate")} value={`${hash(miner.hashrate_ths)} TH/s`} /><Detail label={t("detailAvgHashrate")} value={`${hash(miner.hashrate_avg_ths)} TH/s`} /><Detail label={t("detailConsumption")} value={`${watts(miner.power_w, locale)} W`} /><Detail label={t("detailVoltageCurrent")} value={<VA miner={miner} />} /><Detail label={t("detailEfficiency")} value={`${n(miner.efficiency_jth)?.toFixed(1) ?? "—"} J/TH`} /><Detail label={t("detailCooling")} value={<Cooling miner={miner} full />} /><Detail label={t("detailUptime")} value={uptime(miner.uptime_s)} /><Detail label={t("detailAcceptedShares")} value={`${n(miner.accepted) ?? 0}`} /><Detail label={t("detailRejectedShares")} value={`${n(miner.rejected) ?? 0}`} /><Detail label={t("detailPool")} value={miner.pool ?? "—"} /><Detail label={t("detailWorker")} value={miner.worker ?? "—"} /></div>
             <h4>{t("temperaturePerBoard")}</h4><ThermalStrip miner={miner} large />
             <h4>{t("devfeeLabel")}</h4><DevfeeEditor key={miner.id} miner={miner} updateDevfee={updateDevfee} />
+            <h4>{t("eventsTitle")}</h4><EventsPanel events={events} />
             {rebootFeedback && <p className={`lm-command-feedback ${rebootFeedback.ok ? "ok" : "error"}`}>{rebootFeedback.message}</p>}
-            <div className="lm-detail-actions"><button className="lm-btn lm-pool-button" onClick={() => changePool(miner.id)}>⇄ {t("changePoolForMachine")}</button><button className="lm-btn" disabled={rebooting} onClick={doReboot}>{rebooting ? t("rebooting") : `⟲ ${t("rebootMachine")}`}</button></div>
+            {stopFeedback && <p className={`lm-command-feedback ${stopFeedback.ok ? "ok" : "error"}`}>{stopFeedback.message}</p>}
+            <div className="lm-detail-actions"><button className="lm-btn lm-pool-button" onClick={() => changePool(miner.id)}>⇄ {t("changePoolForMachine")}</button><button className="lm-btn" disabled={rebooting} onClick={doReboot}>{rebooting ? t("rebooting") : `⟲ ${t("rebootMachine")}`}</button><button className="lm-btn lm-danger" disabled={stopping} onClick={doStopMining}>{stopping ? t("stoppingMining") : `⏹ ${t("stopMining")}`}</button></div>
           </>}
       <div className="lm-detail-actions"><button className="lm-btn lm-danger" onClick={doDelete}>🗑 {t("deleteMachine")}</button></div>
     </> : <><h3>{t("addMachineTitle")}</h3><p className="lm-sub">{t("addMachineSubtitle")}</p><form action={addAction} onSubmit={close}><label>{t("nameLabel")}<input name="name" required placeholder={t("namePlaceholder")} /></label><label>{t("ipLabel")}<input name="ip" required placeholder="192.168.1.101" /></label><label>{t("typeLabel")}<select name="type" defaultValue="antminer"><option value="antminer">Antminer</option><option value="whatsminer">Whatsminer</option><option value="avalon">Avalon</option></select></label><label>{t("portLabel")}<input name="port" type="number" defaultValue="4028" /></label><button className="lm-btn lm-primary" type="submit">{t("add")}</button></form></>}

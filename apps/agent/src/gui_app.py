@@ -27,7 +27,7 @@ from tkinter import messagebox, ttk
 
 import httpx
 
-from miners import apply_pool_config, poll_miner, reboot_miner
+from miners import apply_pool_config, poll_miner, reboot_miner, stop_mining_miner
 
 AGENT_VERSION = "0.7.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
@@ -310,6 +310,8 @@ class Collector:
                 results = await asyncio.gather(*(apply_pool_config(m, m.get("credentials"), command.get("pools", [])) for m in miners))
             elif kind == "reboot":
                 results = await asyncio.gather(*(reboot_miner(m, m.get("credentials")) for m in miners))
+            elif kind == "stop_mining":
+                results = await asyncio.gather(*(stop_mining_miner(m, m.get("credentials")) for m in miners))
             else:
                 return
             report = await client.post(commands_url, headers=headers, json={"command_id": command["id"], "results": list(results)})

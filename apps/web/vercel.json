@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/cron/affiliate-commissions", "schedule": "0 6 * * *" }
+    { "path": "/api/cron/affiliate-commissions", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/asic-health-sweep", "schedule": "0 7 * * *" }
   ]
 }
