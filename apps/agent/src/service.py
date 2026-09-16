@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +38,14 @@ def config_path() -> Path:
 
 
 def ensure_startup_entry() -> None:
-    """Cria um atalho .bat na pasta Inicializar para rodar minimizado a cada login."""
+    """Registra o coletor pra iniciar sozinho a cada boot - o mecanismo depende
+    do sistema operacional. No Windows, cria um atalho .bat na pasta
+    Inicializar. No Linux nao ha uma pasta equivalente (escrever ali seria so
+    criar diretorios sem sentido embaixo do diretorio atual) - o jeito certo e
+    um servico systemd, entao só avisamos onde encontrar o unit pronto."""
+    if platform.system() != "Windows":
+        print("Inicializacao automatica no Linux: use o servico systemd em systemd/asic-monitor-agent.service (ver README.md).")
+        return
     try:
         STARTUP_DIR.mkdir(parents=True, exist_ok=True)
         launcher = STARTUP_DIR / STARTUP_LAUNCHER_NAME

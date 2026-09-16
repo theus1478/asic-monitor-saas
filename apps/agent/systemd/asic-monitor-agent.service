@@ -1,0 +1,16 @@
+[Unit]
+Description=ASIC Monitor Agent (coletor)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/asic-monitor-agent
+ExecStart=/opt/asic-monitor-agent/venv/bin/python3 /opt/asic-monitor-agent/service.py
+Restart=on-failure
+RestartSec=10
+# Troque por um usuario sem privilegio de root dedicado ao coletor, se preferir:
+# User=asicmonitor
+
+[Install]
+WantedBy=multi-user.target
