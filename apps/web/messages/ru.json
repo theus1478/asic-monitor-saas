@@ -10,6 +10,7 @@
     "collector": "Коллектор",
     "licenses": "Лицензии",
     "management": "Управление",
+    "affiliates": "Партнёры",
     "workspaceClient": "ПАНЕЛЬ ОПЕРАЦИЙ",
     "workspaceAdmin": "АДМИНИСТРИРОВАНИЕ",
     "logout": "Выйти",
@@ -58,7 +59,9 @@
     "invalidCredentials": "Неверная почта или пароль",
     "invalidEmailPassword": "Используйте действительную почту и пароль не менее 8 символов",
     "signupReceived": "Регистрация получена. Проверьте почту, чтобы активировать аккаунт.",
-    "emailAlreadyRegistered": "Эта почта уже зарегистрирована. Попробуйте войти в аккаунт."
+    "emailAlreadyRegistered": "Эта почта уже зарегистрирована. Попробуйте войти в аккаунт.",
+    "referralCode": "Реферальный код (необязательно)",
+    "referralCodePlaceholder": "Напр.: AB12CD3"
   },
   "dashboard": {
     "title": "Обзор",

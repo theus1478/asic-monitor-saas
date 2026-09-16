@@ -10,6 +10,7 @@
     "collector": "Collector",
     "licenses": "Licenses",
     "management": "Management",
+    "affiliates": "Affiliates",
     "workspaceClient": "OPERATIONS PANEL",
     "workspaceAdmin": "ADMINISTRATION",
     "logout": "Sign out",
@@ -58,7 +59,9 @@
     "invalidCredentials": "Invalid email or password",
     "invalidEmailPassword": "Use a valid email and a password with at least 8 characters",
     "signupReceived": "Sign-up received. Check your email to activate the account.",
-    "emailAlreadyRegistered": "This email is already registered. Try signing in instead."
+    "emailAlreadyRegistered": "This email is already registered. Try signing in instead.",
+    "referralCode": "Referral code (optional)",
+    "referralCodePlaceholder": "e.g. AB12CD3"
   },
   "dashboard": {
     "title": "Overview",

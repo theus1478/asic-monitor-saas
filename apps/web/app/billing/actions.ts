@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { getOrganizationId } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
 import { BILLING_WALLET_PUBLIC_KEY, monthlyPriceCents, SOLANA_USDT_MINT } from "../../lib/pricing";
+import { recordAffiliateCommissionForInvoice } from "../../lib/affiliate";
 
 export async function createLicensePurchase(formData: FormData) {
   const quantity = Math.max(1, Math.min(9999, Math.round(Number(formData.get("quantity")) || 0)));
@@ -86,6 +87,7 @@ export async function verifyLicensePurchase(invoiceId: string) {
     const licensedMachines = (activeBatches ?? []).reduce((sum, batch) => sum + Number(batch.quantity), 0);
     const latestExpiry = (activeBatches ?? []).reduce<string | null>((latest, batch) => !latest || batch.expires_at > latest ? batch.expires_at : latest, null);
     await service.from("subscriptions").update({ status: "active", licensed_machines: licensedMachines, current_period_end: latestExpiry }).eq("organization_id", organizationId);
+    await recordAffiliateCommissionForInvoice(service, invoice.id);
     revalidatePath("/billing"); revalidatePath("/farms");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Não foi possível consultar a rede Solana.";

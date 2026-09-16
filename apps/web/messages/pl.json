@@ -10,6 +10,7 @@
     "collector": "Kolektor",
     "licenses": "Licencje",
     "management": "Zarządzanie",
+    "affiliates": "Partnerzy",
     "workspaceClient": "PANEL OPERACJI",
     "workspaceAdmin": "ADMINISTRACJA",
     "logout": "Wyloguj się",
@@ -58,7 +59,9 @@
     "invalidCredentials": "Nieprawidłowy e-mail lub hasło",
     "invalidEmailPassword": "Użyj prawidłowego e-maila i hasła o długości co najmniej 8 znaków",
     "signupReceived": "Rejestracja przyjęta. Sprawdź e-mail, aby aktywować konto.",
-    "emailAlreadyRegistered": "Ten e-mail jest już zarejestrowany. Spróbuj się zalogować."
+    "emailAlreadyRegistered": "Ten e-mail jest już zarejestrowany. Spróbuj się zalogować.",
+    "referralCode": "Kod polecający (opcjonalnie)",
+    "referralCodePlaceholder": "Np. AB12CD3"
   },
   "dashboard": {
     "title": "Przegląd",

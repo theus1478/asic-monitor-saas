@@ -10,6 +10,7 @@
     "collector": "Colector",
     "licenses": "Licencias",
     "management": "Gestión",
+    "affiliates": "Afiliados",
     "workspaceClient": "PANEL DE OPERACIÓN",
     "workspaceAdmin": "ADMINISTRACIÓN",
     "logout": "Cerrar sesión",
@@ -58,7 +59,9 @@
     "invalidCredentials": "Correo o contraseña inválidos",
     "invalidEmailPassword": "Usa un correo válido y una contraseña de al menos 8 caracteres",
     "signupReceived": "Registro recibido. Revisa tu correo para activar la cuenta.",
-    "emailAlreadyRegistered": "Este correo ya está registrado. Intenta iniciar sesión."
+    "emailAlreadyRegistered": "Este correo ya está registrado. Intenta iniciar sesión.",
+    "referralCode": "Código de referido (opcional)",
+    "referralCodePlaceholder": "Ej: AB12CD3"
   },
   "dashboard": {
     "title": "Resumen",

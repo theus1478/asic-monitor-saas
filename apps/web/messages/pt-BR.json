@@ -10,6 +10,7 @@
     "collector": "Coletor",
     "licenses": "Licenças",
     "management": "Gestão",
+    "affiliates": "Afiliados",
     "workspaceClient": "PAINEL DA OPERAÇÃO",
     "workspaceAdmin": "ADMINISTRAÇÃO",
     "logout": "Sair da conta",
@@ -58,7 +59,9 @@
     "invalidCredentials": "E-mail ou senha inválidos",
     "invalidEmailPassword": "Use um e-mail válido e uma senha com pelo menos 8 caracteres",
     "signupReceived": "Cadastro recebido. Verifique seu e-mail para ativar a conta.",
-    "emailAlreadyRegistered": "Este e-mail já está cadastrado. Tente entrar na sua conta."
+    "emailAlreadyRegistered": "Este e-mail já está cadastrado. Tente entrar na sua conta.",
+    "referralCode": "Código de indicação (opcional)",
+    "referralCodePlaceholder": "Ex: AB12CD3"
   },
   "dashboard": {
     "title": "Visão geral",

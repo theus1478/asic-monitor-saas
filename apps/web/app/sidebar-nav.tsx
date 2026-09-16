@@ -18,8 +18,9 @@ function SidebarNavContent({ admin, pathname }: { admin: boolean; pathname: stri
     { href: "/farms", label: t("farms"), icon: "▦" },
     { href: "/collector", label: t("collector"), icon: "⇣" },
     { href: "/billing", label: t("licenses"), icon: "◇" },
+    { href: "/affiliate", label: t("affiliates"), icon: "✦" },
   ];
-  const links = admin ? [{ href: "/admin", label: t("management"), icon: "⌁" }] : clientLinks;
+  const links = admin ? [{ href: "/admin", label: t("management"), icon: "⌁" }, { href: "/admin/affiliates", label: t("affiliates"), icon: "✦" }] : clientLinks;
   return <>
     <div className={`route-progress ${navigating ? "visible" : ""}`} />
     <nav className="sidebar-nav">{links.map((link) => {

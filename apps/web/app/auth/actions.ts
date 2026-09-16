@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { createClient } from "../../lib/supabase/server";
 
@@ -32,6 +33,7 @@ export async function signUp(formData: FormData) {
   const email = value(formData, "email");
   const password = value(formData, "password");
   const fullName = value(formData, "fullName");
+  const referralCode = value(formData, "referralCode").toUpperCase().slice(0, 16);
   const captchaToken = value(formData, "cf-turnstile-response") || undefined;
   const t = await getTranslations("auth");
 
@@ -47,7 +49,7 @@ export async function signUp(formData: FormData) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName }, emailRedirectTo: `${appUrl}/auth/callback`, captchaToken },
+    options: { data: { full_name: fullName, referral_code: referralCode || undefined }, emailRedirectTo: `${appUrl}/auth/callback`, captchaToken },
   });
 
   if (error) redirect(`/sign-in?mode=signup&error=${encodeURIComponent(error.message)}`);
@@ -57,6 +59,7 @@ export async function signUp(formData: FormData) {
   if (data.user && data.user.identities?.length === 0) {
     redirect(`/sign-in?mode=signup&error=${encodeURIComponent(t("emailAlreadyRegistered"))}`);
   }
+  (await cookies()).delete("ref_code");
   redirect(`/sign-in?message=${encodeURIComponent(t("signupReceived"))}`);
 }
 
