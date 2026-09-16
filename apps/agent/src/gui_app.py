@@ -507,7 +507,6 @@ class App(tk.Tk):
     def _open_add_manual(self) -> None:
         dialog = tk.Toplevel(self)
         dialog.title("Adicionar máquina")
-        dialog.geometry("360x260")
         dialog.transient(self)
         dialog.grab_set()
         frame = ttk.Frame(dialog, padding=20)
@@ -569,6 +568,14 @@ class App(tk.Tk):
         ip_entry.bind("<Return>", lambda event: confirm())
         port_entry.bind("<Return>", lambda event: confirm())
         ip_entry.focus_set()
+
+        # Tamanho calculado depois que todos os campos existem, nao um valor
+        # fixo chutado - com fonte/DPI maiores que o normal, um tamanho fixo
+        # cortava o botao OK pra fora da janela (ele existia, so nao dava pra
+        # ver nem clicar sem redimensionar a janela manualmente).
+        dialog.update_idletasks()
+        dialog.geometry(f"360x{dialog.winfo_reqheight()}")
+        dialog.resizable(False, False)
 
     def _open_scan(self) -> None:
         dialog = tk.Toplevel(self)
