@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getOrganizationId } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
-import { BILLING_WALLET_PUBLIC_KEY, monthlyPriceCents, SOLANA_USDT_MINT } from "../../lib/pricing";
+import { BILLING_WALLET_PUBLIC_KEY, monthlyPriceCents, SOLANA_USDT_MINT, withUniqueAmountTail } from "../../lib/pricing";
 import { recordAffiliateCommissionForInvoice } from "../../lib/affiliate";
 
 export async function createLicensePurchase(formData: FormData) {
@@ -19,7 +19,8 @@ export async function createLicensePurchase(formData: FormData) {
     subscription = result.data;
   }
   const reference = `LIC-${randomUUID()}`;
-  const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: monthlyPriceCents(quantity) / 100, wallet_address: BILLING_WALLET_PUBLIC_KEY, network: "solana", status: "pending", due_at: new Date(Date.now() + 30 * 60_000).toISOString() }).select("id").single();
+  const amountUsdt = withUniqueAmountTail(monthlyPriceCents(quantity) / 100, reference);
+  const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: amountUsdt, wallet_address: BILLING_WALLET_PUBLIC_KEY, network: "solana", status: "pending", due_at: new Date(Date.now() + 30 * 60_000).toISOString() }).select("id").single();
   if (error || !invoice) redirect(`/billing?error=${encodeURIComponent(error?.message ?? "Não foi possível gerar a cobrança.")}`);
   const batch = await supabase.from("license_batches").insert({ organization_id: organizationId, invoice_id: invoice.id, quantity, status: "pending" });
   if (batch.error) redirect(`/billing?error=${encodeURIComponent(batch.error.message)}`);
@@ -68,14 +69,25 @@ export async function verifyLicensePurchase(invoiceId: string) {
     const addresses = (tokenAccounts?.value ?? []).map((entry: { pubkey: string }) => entry.pubkey);
     const signatures = (await Promise.all(addresses.map(async (address: string) => rpc("getSignaturesForAddress", [address, { limit: 60 }])))).flat();
     const unique = [...new Map(signatures.filter((item: { err?: unknown }) => !item.err).map((item: { signature: string }) => [item.signature, item])).values()] as Array<{ signature: string }>;
-    let match: { signature: string; transaction: ParsedTransaction } | null = null;
+
+    const candidates: { signature: string; transaction: ParsedTransaction; received: number }[] = [];
     for (const item of unique.slice(0, 100)) {
       const transaction = await rpc("getTransaction", [item.signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]) as ParsedTransaction | null;
-      if (!transaction || transaction.meta?.err || !containsReference(transaction, invoice.reference)) continue;
+      if (!transaction || transaction.meta?.err) continue;
       const received = tokenTotal(transaction.meta?.postTokenBalances, invoice.wallet_address) - tokenTotal(transaction.meta?.preTokenBalances, invoice.wallet_address);
-      if (received + 0.000001 >= Number(invoice.amount_usdt)) { match = { signature: item.signature, transaction }; break; }
+      if (received > 0) candidates.push({ signature: item.signature, transaction, received });
     }
-    if (!match) throw new Error("Pagamento ainda não localizado. Aguarde a confirmação da rede e tente novamente.");
+
+    const expected = Number(invoice.amount_usdt);
+    // Preferência 1: carteiras compatíveis com Solana Pay incluem o memo com a
+    // referência da fatura — mais forte, tolera arredondamento pra cima.
+    let match = candidates.find((c) => containsReference(c.transaction, invoice.reference) && c.received + 0.000001 >= expected) ?? null;
+    // Preferência 2: sem memo (ex.: saque direto de uma exchange, que não deixa
+    // anexar memo/tag num saque de Solana) — casa pelo valor exato da cobrança,
+    // já que cada cobrança pede uma fração de centavo diferente das outras
+    // (ver withUniqueAmountTail), então o valor sozinho já identifica o cliente.
+    if (!match) match = candidates.find((c) => Math.abs(c.received - expected) <= 0.0000005) ?? null;
+    if (!match) throw new Error("Pagamento ainda não localizado. Confira se enviou o valor exato (com as casas decimais) e tente novamente em alguns minutos.");
 
     const service = createServiceClient();
     const paidAt = new Date(), expiresAt = new Date(paidAt.getTime() + 30 * 86400_000);
