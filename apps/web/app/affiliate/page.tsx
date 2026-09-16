@@ -63,7 +63,7 @@ export default async function AffiliatePage() {
   const totalVolume = activeCommissions.reduce((sum, c) => sum + Number(c.purchase_amount), 0);
 
   return <Shell>
-    <PageHeader title="Programa de Afiliados" description={`Indique novos clientes e receba ${profile.commission_rate}% sobre o que eles gastarem em licenças.`} />
+    <PageHeader title="Programa de Indicações" description={`Indique novos clientes e receba ${profile.commission_rate}% sobre o que eles gastarem em licenças.`} />
 
     <section className="card setup">
       <p className="eyebrow">SEU CÓDIGO DE INDICAÇÃO</p>

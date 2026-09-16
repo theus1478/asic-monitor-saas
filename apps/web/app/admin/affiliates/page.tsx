@@ -66,12 +66,12 @@ export default async function AdminAffiliatesPage() {
   const totalCanceled = commissionList.filter((c) => c.status === "canceled" || c.status === "reversed").reduce((sum, c) => sum + Number(c.commission_amount), 0);
 
   return <Shell admin>
-    <PageHeader title="Financeiro › Afiliados" description="Indicações, comissões e pagamentos do programa de afiliados." />
+    <PageHeader title="Financeiro › Indicações" description="Indicações, comissões e pagamentos do programa de indicações." />
     <section className="metrics-grid">
-      <article className="card"><p className="eyebrow">AFILIADOS</p><div className="metric">{totalAffiliates}</div></article>
+      <article className="card"><p className="eyebrow">INDICADORES</p><div className="metric">{totalAffiliates}</div></article>
       <article className="card"><p className="eyebrow">USUÁRIOS INDICADOS</p><div className="metric">{totalReferred}</div></article>
       <article className="card"><p className="eyebrow">COMPRADORES INDICADOS</p><div className="metric">{totalBuyers}</div></article>
-      <article className="card"><p className="eyebrow">LICENÇAS VIA AFILIADOS</p><div className="metric">{totalLicenses}</div></article>
+      <article className="card"><p className="eyebrow">LICENÇAS VIA INDICAÇÕES</p><div className="metric">{totalLicenses}</div></article>
       <article className="card"><p className="eyebrow">VOLUME GERADO</p><div className="metric">{money(totalVolume)}</div></article>
       <article className="card"><p className="eyebrow">COMISSÕES PENDENTES</p><div className="metric">{money(totalPending)}</div></article>
       <article className="card"><p className="eyebrow">COMISSÕES DISPONÍVEIS</p><div className="metric">{money(totalAvailable)}</div></article>
@@ -79,11 +79,11 @@ export default async function AdminAffiliatesPage() {
     </section>
 
     <section className="card table-card">
-      <div className="section-title"><div><h2>Afiliados</h2><p>Clique para ver o detalhe de indicados e registrar pagamentos.</p></div></div>
+      <div className="section-title"><div><h2>Indicadores</h2><p>Clique para ver o detalhe de indicados e registrar pagamentos.</p></div></div>
       {rows.length === 0
-        ? <p className="muted">Nenhum afiliado ainda — o perfil é criado automaticamente quando um usuário abre o painel de afiliados dele.</p>
+        ? <p className="muted">Nenhum indicador ainda — o perfil é criado automaticamente quando um usuário abre o painel de indicações dele.</p>
         : <div className="table-wrap"><table>
-            <thead><tr><th>Afiliado</th><th>Código</th><th>Indicados</th><th>Pagantes</th><th>Licenças vendidas</th><th>Volume</th><th>Pendente</th><th>Disponível</th><th>Pago</th><th>Status</th></tr></thead>
+            <thead><tr><th>Indicador</th><th>Código</th><th>Indicados</th><th>Pagantes</th><th>Licenças vendidas</th><th>Volume</th><th>Pendente</th><th>Disponível</th><th>Pago</th><th>Status</th></tr></thead>
             <tbody>{rows.map((row) => <tr key={row.id}>
               <td><Link href={`/admin/affiliates/${row.id}`}><b>{row.email}</b></Link></td>
               <td className="lm-mono">{row.affiliate_code}</td>
@@ -102,7 +102,7 @@ export default async function AdminAffiliatesPage() {
     <section className="card setup">
       <p className="eyebrow">CONFIGURAÇÃO DO PROGRAMA</p>
       <h2>Regras de comissão</h2>
-      <p className="muted">Vale só para novos afiliados e novas comissões a partir de agora — nada é recalculado retroativamente.</p>
+      <p className="muted">Vale só para novos indicadores e novas comissões a partir de agora — nada é recalculado retroativamente.</p>
       <form action={updateAffiliateSettings} className="inline-form" style={{ flexWrap: "wrap" }}>
         <label style={{ display: "grid", gap: 4, fontSize: 13 }}>Taxa padrão (%)<input name="commissionRate" type="number" min="0" max="100" step="0.01" defaultValue={settings.affiliate_default_commission_rate} required /></label>
         <label style={{ display: "grid", gap: 4, fontSize: 13 }}>Carência (dias)<input name="holdDays" type="number" min="0" defaultValue={settings.affiliate_hold_period_days} required /></label>

@@ -7,17 +7,25 @@ comandos de troca de pool e de reinício e os executa diretamente nas ASICs da
 rede local.
 
 Pede a URL da API e o token do agente (gerados no painel, em Fazendas →
-Gerar token do agente) toda vez que abre — valida contra a nuvem antes de
-entrar e mostra o nome da fazenda e quantas licenças estão em uso (os
-últimos valores digitados ficam salvos em `last_login.json` só como
-atalho, mas sempre revalida). Depois de entrar, cadastra máquinas por IP
-manual ou escaneando uma faixa de IP (você escolhe início e fim; confirma
-o protocolo real de cada dispositivo, não só a porta aberta). Cada máquina
-adicionada ou removida sincroniza na hora com o painel (`POST`/`DELETE
-/api/agent/config`); o app também some com qualquer máquina cadastrada por
-lá, então os dois lados ficam sempre iguais. Se registra na pasta
-*Inicializar* do Windows (`shell:startup`) para abrir sozinho a cada
-login, sem precisar de Tarefa Agendada nem de privilégio de administrador.
+Gerar token do agente) na primeira vez que abre — valida contra a nuvem antes
+de entrar e mostra o nome da fazenda e quantas licenças estão em uso. Da
+segunda vez em diante, entra sozinho: os últimos valores ficam salvos em
+`last_login.json` e o app tenta esse login automaticamente assim que abre,
+sem exigir clique nenhum. Se a validação falhar (token revogado, rede fora),
+cai de volta na tela de login para uma tentativa manual. Depois de entrar,
+cadastra máquinas por IP manual (com confirmação explícita — botão OK, que só
+aceita depois de validar o formato do IP) ou escaneando uma faixa de IP (você
+escolhe início e fim; confirma o protocolo real de cada dispositivo, não só a
+porta aberta). Cada máquina adicionada ou removida sincroniza na hora com o
+painel (`POST`/`DELETE /api/agent/config`); o app também some com qualquer
+máquina cadastrada por lá, então os dois lados ficam sempre iguais.
+
+Se registra na pasta *Inicializar* do Windows (`shell:startup`) para abrir
+sozinho, minimizado, a cada login do Windows — combinado com o login
+automático acima, isso significa que o monitoramento volta a rodar sem
+ninguém precisar tocar no PC depois de um reinício. Não precisa de Tarefa
+Agendada nem de privilégio de administrador. Exige a versão 0.7.0 ou
+posterior do executável.
 
 ## Compilar o .exe
 

@@ -7,10 +7,10 @@
   "nav": {
     "overview": "Resumen",
     "farms": "Granjas",
-    "collector": "Colector",
+    "collector": "Telemetría",
     "licenses": "Licencias",
     "management": "Gestión",
-    "affiliates": "Afiliados",
+    "affiliates": "Referidos",
     "workspaceClient": "PANEL DE OPERACIÓN",
     "workspaceAdmin": "ADMINISTRACIÓN",
     "logout": "Cerrar sesión",
@@ -110,11 +110,14 @@
     "addFarm": "Agregar granja",
     "addFarmBody": "Organiza tus máquinas por ubicación física.",
     "farmNamePlaceholder": "Nombre de la granja",
-    "timezonePlaceholder": "Zona horaria",
+    "timezonePlaceholder": "Zona horaria (opcional)",
     "createFarm": "Crear granja",
     "deleteFarmConfirm": "¿Eliminar la granja “{name}” y todos los datos vinculados?",
     "deleteFarm": "Eliminar granja",
-    "deleteAction": "Eliminar {name}"
+    "deleteAction": "Eliminar {name}",
+    "renameFarm": "Renombrar granja",
+    "renameAction": "Renombrar {name}",
+    "renameFarmPrompt": "Nuevo nombre de la granja:"
   },
   "createAgent": {
     "eyebrow": "COLECTOR DE LA GRANJA",
@@ -183,7 +186,7 @@
     "addressCopied": "Dirección copiada"
   },
   "collector": {
-    "title": "Colector local",
+    "title": "Telemetría",
     "description": "Instálalo una vez en la computadora principal de cada granja.",
     "downloadWindows": "⇣ Descargar para Windows",
     "heroEyebrow": "ASIC MONITOR AGENT · V0.4",
@@ -196,13 +199,13 @@
     "step1Title": "Crea la granja",
     "step1Body": "Registra la ubicación y abre la página de monitoreo.",
     "step2Title": "Genera el token",
-    "step2Body": "En la página de la granja, abre “Colector” y genera una credencial.",
+    "step2Body": "En la página de la granja, abre “Telemetría” y genera una credencial.",
     "step3Title": "Abre el colector",
     "step3Body": "Crea el inicio de sesión local, pega la URL y el token en Configuración de la nube.",
     "step4Title": "Registra las máquinas",
     "step4Body": "Escanea la red o agrega la IP manualmente — se sincroniza al instante con el panel.",
     "readyTitle": "¿Listo para configurar?",
-    "readyBody": "Elige una granja, abre el botón “Colector” y copia el token de instalación.",
+    "readyBody": "Elige una granja, abre el botón “Telemetría” y copia el token de instalación.",
     "chooseFarm": "Elegir granja"
   },
   "farmDetail": {
@@ -211,7 +214,7 @@
     "income": "Rendimiento",
     "onlineStatus": "{online}/{total} en línea · escaneado hace {age}",
     "updating": " · actualizando…",
-    "setupButton": "Colector",
+    "setupButton": "Telemetría",
     "farmsLink": "Granjas",
     "totalHashrate": "Hashrate total",
     "totalConsumption": "Consumo total",

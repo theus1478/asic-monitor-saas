@@ -7,10 +7,10 @@
   "nav": {
     "overview": "Przegląd",
     "farms": "Farmy",
-    "collector": "Kolektor",
+    "collector": "Telemetria",
     "licenses": "Licencje",
     "management": "Zarządzanie",
-    "affiliates": "Partnerzy",
+    "affiliates": "Polecenia",
     "workspaceClient": "PANEL OPERACJI",
     "workspaceAdmin": "ADMINISTRACJA",
     "logout": "Wyloguj się",
@@ -110,11 +110,14 @@
     "addFarm": "Dodaj farmę",
     "addFarmBody": "Organizuj urządzenia według lokalizacji fizycznej.",
     "farmNamePlaceholder": "Nazwa farmy",
-    "timezonePlaceholder": "Strefa czasowa",
+    "timezonePlaceholder": "Strefa czasowa (opcjonalnie)",
     "createFarm": "Utwórz farmę",
     "deleteFarmConfirm": "Usunąć farmę „{name}” i wszystkie powiązane dane?",
     "deleteFarm": "Usuń farmę",
-    "deleteAction": "Usuń {name}"
+    "deleteAction": "Usuń {name}",
+    "renameFarm": "Zmień nazwę farmy",
+    "renameAction": "Zmień nazwę {name}",
+    "renameFarmPrompt": "Nowa nazwa farmy:"
   },
   "createAgent": {
     "eyebrow": "KOLEKTOR FARMY",
@@ -183,7 +186,7 @@
     "addressCopied": "Adres skopiowany"
   },
   "collector": {
-    "title": "Kolektor lokalny",
+    "title": "Telemetria",
     "description": "Zainstaluj raz na głównym komputerze każdej farmy.",
     "downloadWindows": "⇣ Pobierz dla Windows",
     "heroEyebrow": "ASIC MONITOR AGENT · V0.4",
@@ -196,13 +199,13 @@
     "step1Title": "Utwórz farmę",
     "step1Body": "Zarejestruj lokalizację i otwórz stronę monitorowania.",
     "step2Title": "Wygeneruj token",
-    "step2Body": "Na stronie farmy otwórz „Kolektor” i wygeneruj poświadczenie.",
+    "step2Body": "Na stronie farmy otwórz „Telemetria” i wygeneruj poświadczenie.",
     "step3Title": "Otwórz kolektor",
     "step3Body": "Utwórz lokalny login, wklej URL i token w Ustawieniach chmury.",
     "step4Title": "Zarejestruj urządzenia",
     "step4Body": "Zeskanuj sieć lub dodaj adres IP ręcznie — synchronizacja z panelem odbywa się natychmiast.",
     "readyTitle": "Gotowy do konfiguracji?",
-    "readyBody": "Wybierz farmę, otwórz przycisk „Kolektor” i skopiuj token instalacyjny.",
+    "readyBody": "Wybierz farmę, otwórz przycisk „Telemetria” i skopiuj token instalacyjny.",
     "chooseFarm": "Wybierz farmę"
   },
   "farmDetail": {
@@ -211,7 +214,7 @@
     "income": "Dochód",
     "onlineStatus": "{online}/{total} online · skanowanie {age} temu",
     "updating": " · aktualizowanie…",
-    "setupButton": "Kolektor",
+    "setupButton": "Telemetria",
     "farmsLink": "Farmy",
     "totalHashrate": "Łączny hashrate",
     "totalConsumption": "Łączne zużycie",

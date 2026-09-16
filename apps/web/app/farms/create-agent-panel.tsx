@@ -9,7 +9,7 @@ type Agent = { id: string; name: string; status: string; last_seen_at: string | 
 export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: Agent[] }) {
   const t = useTranslations("createAgent");
   const [token, setToken] = useState<string | null>(null);
-  const [name, setName] = useState("Coletor principal");
+  const [name, setName] = useState("Telemetria principal");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"url" | "token" | null>(null);

@@ -29,7 +29,7 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner
 
-AGENT_VERSION = "0.6.0"
+AGENT_VERSION = "0.7.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
@@ -405,6 +405,16 @@ class App(tk.Tk):
         token_entry.bind("<Return>", do_login)
         url_entry.focus_set()
 
+        # Login automatico: se ja existe uma sessao salva de uma vez anterior,
+        # tenta entrar sozinho, sem exigir clique - essencial pro coletor voltar
+        # a monitorar assim que o Windows liga (fica na pasta Inicializar,
+        # minimizado) sem esperar alguem aparecer na frente do PC pra clicar
+        # "Entrar". Se falhar (token revogado, rede fora), cai de volta nesta
+        # mesma tela de login pra tentativa manual - nao trava em lugar nenhum.
+        if last.get("api_url") and last.get("agent_token"):
+            status_label.config(foreground="#2c7a4b", text="Entrando automaticamente com a sessão salva...")
+            self.after(150, do_login)
+
     # ---- janela principal ----
 
     def _build_main(self, login_data: dict) -> None:
@@ -553,8 +563,12 @@ class App(tk.Tk):
 
             self._request("POST", "config", {"miners": [miner]}, done)
 
-        confirm_button = ttk.Button(frame, text="Adicionar", command=confirm)
+        confirm_button = ttk.Button(frame, text="OK", command=confirm)
         confirm_button.pack(anchor="e")
+        name_entry.bind("<Return>", lambda event: confirm())
+        ip_entry.bind("<Return>", lambda event: confirm())
+        port_entry.bind("<Return>", lambda event: confirm())
+        ip_entry.focus_set()
 
     def _open_scan(self) -> None:
         dialog = tk.Toplevel(self)

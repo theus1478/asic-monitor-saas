@@ -48,7 +48,7 @@ export async function getOrCreateAffiliateProfile(supabase: SupabaseClient, user
     if (!error) return data;
     if (error.code !== "23505") throw new Error(error.message); // só tenta de novo em colisão de código único
   }
-  throw new Error("Não foi possível gerar um código de afiliado único. Tente novamente.");
+  throw new Error("Não foi possível gerar um código de indicação único. Tente novamente.");
 }
 
 /**

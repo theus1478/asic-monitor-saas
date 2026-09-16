@@ -115,8 +115,8 @@ export async function reassignReferral(referredUserId: string, newAffiliateCode:
   const { userId: adminId } = await requirePlatformAdmin();
   const service = createServiceClient();
   const { data: newAffiliate } = await service.from("affiliate_profiles").select("id, user_id").ilike("affiliate_code", newAffiliateCode).maybeSingle();
-  if (!newAffiliate) return { ok: false, message: "Código de afiliado não encontrado." };
-  if (newAffiliate.user_id === referredUserId) return { ok: false, message: "Um usuário não pode ser afiliado de si mesmo." };
+  if (!newAffiliate) return { ok: false, message: "Código de indicação não encontrado." };
+  if (newAffiliate.user_id === referredUserId) return { ok: false, message: "Um usuário não pode se indicar a si mesmo." };
 
   const { data: before } = await service.from("affiliate_referrals").select("*").eq("referred_user_id", referredUserId).maybeSingle();
   if (!before) return { ok: false, message: "Este usuário não tem indicação registrada." };

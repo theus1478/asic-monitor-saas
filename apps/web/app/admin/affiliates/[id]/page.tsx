@@ -60,7 +60,7 @@ export default async function AdminAffiliateDetailPage({ params }: { params: Pro
   const totalCanceled = commissionList.filter((c) => c.status === "canceled" || c.status === "reversed").reduce((sum, c) => sum + Number(c.commission_amount), 0);
 
   return <Shell admin>
-    <PageHeader title={affiliateEmail} description={`Afiliado desde ${new Date(affiliate.created_at).toLocaleDateString("pt-BR")} · código ${affiliate.affiliate_code} · taxa ${affiliate.commission_rate}%`} action={<Link href="/admin/affiliates" className="button secondary">← Voltar</Link>} />
+    <PageHeader title={affiliateEmail} description={`Indicador desde ${new Date(affiliate.created_at).toLocaleDateString("pt-BR")} · código ${affiliate.affiliate_code} · taxa ${affiliate.commission_rate}%`} action={<Link href="/admin/affiliates" className="button secondary">← Voltar</Link>} />
 
     <section className="metrics-grid">
       <article className="card"><p className="eyebrow">INDICADOS</p><div className="metric">{totalReferred}</div></article>

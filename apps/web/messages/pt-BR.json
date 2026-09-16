@@ -7,10 +7,10 @@
   "nav": {
     "overview": "Visão geral",
     "farms": "Fazendas",
-    "collector": "Coletor",
+    "collector": "Telemetria",
     "licenses": "Licenças",
     "management": "Gestão",
-    "affiliates": "Afiliados",
+    "affiliates": "Indicações",
     "workspaceClient": "PAINEL DA OPERAÇÃO",
     "workspaceAdmin": "ADMINISTRAÇÃO",
     "logout": "Sair da conta",
@@ -110,11 +110,14 @@
     "addFarm": "Adicionar fazenda",
     "addFarmBody": "Organize suas máquinas por local físico.",
     "farmNamePlaceholder": "Nome da fazenda",
-    "timezonePlaceholder": "Fuso horário",
+    "timezonePlaceholder": "Fuso horário (opcional)",
     "createFarm": "Criar fazenda",
     "deleteFarmConfirm": "Excluir a fazenda “{name}” e todos os dados vinculados?",
     "deleteFarm": "Excluir fazenda",
-    "deleteAction": "Excluir {name}"
+    "deleteAction": "Excluir {name}",
+    "renameFarm": "Renomear fazenda",
+    "renameAction": "Renomear {name}",
+    "renameFarmPrompt": "Novo nome da fazenda:"
   },
   "createAgent": {
     "eyebrow": "COLETOR DA FAZENDA",
@@ -183,7 +186,7 @@
     "addressCopied": "Endereço copiado"
   },
   "collector": {
-    "title": "Coletor local",
+    "title": "Telemetria",
     "description": "Instale uma vez no computador principal de cada fazenda.",
     "downloadWindows": "⇣ Baixar para Windows",
     "heroEyebrow": "ASIC MONITOR AGENT · V0.4",
@@ -196,13 +199,13 @@
     "step1Title": "Crie a fazenda",
     "step1Body": "Cadastre o local e abra a página de monitoramento.",
     "step2Title": "Gere o token",
-    "step2Body": "Na página da fazenda, abra “Coletor” e gere uma credencial.",
+    "step2Body": "Na página da fazenda, abra “Telemetria” e gere uma credencial.",
     "step3Title": "Abra o coletor",
     "step3Body": "Crie o login local, cole a URL e o token em Configurações da nuvem.",
     "step4Title": "Cadastre as máquinas",
     "step4Body": "Escaneie a rede ou adicione o IP manualmente — sincroniza na hora com o painel.",
     "readyTitle": "Pronto para configurar?",
-    "readyBody": "Escolha uma fazenda, abra o botão “Coletor” e copie o token de instalação.",
+    "readyBody": "Escolha uma fazenda, abra o botão “Telemetria” e copie o token de instalação.",
     "chooseFarm": "Escolher fazenda"
   },
   "farmDetail": {
@@ -211,7 +214,7 @@
     "income": "Rendimento",
     "onlineStatus": "{online}/{total} online · varredura há {age}",
     "updating": " · atualizando…",
-    "setupButton": "Coletor",
+    "setupButton": "Telemetria",
     "farmsLink": "Fazendas",
     "totalHashrate": "Hashrate total",
     "totalConsumption": "Consumo total",

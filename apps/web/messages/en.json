@@ -7,10 +7,10 @@
   "nav": {
     "overview": "Overview",
     "farms": "Farms",
-    "collector": "Collector",
+    "collector": "Telemetry",
     "licenses": "Licenses",
     "management": "Management",
-    "affiliates": "Affiliates",
+    "affiliates": "Referrals",
     "workspaceClient": "OPERATIONS PANEL",
     "workspaceAdmin": "ADMINISTRATION",
     "logout": "Sign out",
@@ -110,11 +110,14 @@
     "addFarm": "Add farm",
     "addFarmBody": "Organize your machines by physical location.",
     "farmNamePlaceholder": "Farm name",
-    "timezonePlaceholder": "Time zone",
+    "timezonePlaceholder": "Time zone (optional)",
     "createFarm": "Create farm",
     "deleteFarmConfirm": "Delete the farm “{name}” and all linked data?",
     "deleteFarm": "Delete farm",
-    "deleteAction": "Delete {name}"
+    "deleteAction": "Delete {name}",
+    "renameFarm": "Rename farm",
+    "renameAction": "Rename {name}",
+    "renameFarmPrompt": "New farm name:"
   },
   "createAgent": {
     "eyebrow": "FARM COLLECTOR",
@@ -183,7 +186,7 @@
     "addressCopied": "Address copied"
   },
   "collector": {
-    "title": "Local collector",
+    "title": "Telemetry",
     "description": "Install once on each farm's main computer.",
     "downloadWindows": "⇣ Download for Windows",
     "heroEyebrow": "ASIC MONITOR AGENT · V0.4",
@@ -196,13 +199,13 @@
     "step1Title": "Create the farm",
     "step1Body": "Register the location and open the monitoring page.",
     "step2Title": "Generate the token",
-    "step2Body": "On the farm page, open “Collector” and generate a credential.",
+    "step2Body": "On the farm page, open “Telemetry” and generate a credential.",
     "step3Title": "Open the collector",
     "step3Body": "Create the local login, paste the URL and the token in Cloud settings.",
     "step4Title": "Register the machines",
     "step4Body": "Scan the network or add the IP manually — it syncs instantly with the panel.",
     "readyTitle": "Ready to set up?",
-    "readyBody": "Pick a farm, open the “Collector” button and copy the install token.",
+    "readyBody": "Pick a farm, open the “Telemetry” button and copy the install token.",
     "chooseFarm": "Choose farm"
   },
   "farmDetail": {
@@ -211,7 +214,7 @@
     "income": "Income",
     "onlineStatus": "{online}/{total} online · scanned {age} ago",
     "updating": " · updating…",
-    "setupButton": "Collector",
+    "setupButton": "Telemetry",
     "farmsLink": "Farms",
     "totalHashrate": "Total hashrate",
     "totalConsumption": "Total consumption",

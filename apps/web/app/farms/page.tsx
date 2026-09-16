@@ -4,8 +4,9 @@ import { PageHeader, Shell } from "../components";
 import { getOrganizationId } from "../../lib/org-data";
 import { monthlyPriceCents } from "../../lib/pricing";
 import { currentTimeMs } from "../../lib/time";
-import { addFarm, deleteFarm } from "./actions";
+import { addFarm, deleteFarm, renameFarm } from "./actions";
 import { FarmDeleteButton } from "./farm-delete-button";
+import { FarmRenameButton } from "./farm-rename-button";
 
 type Metric = { miner_id: string; online: boolean; observed_at: string };
 const FRESH_MS = 90_000;
@@ -37,13 +38,13 @@ export default async function FarmsPage() {
         const agentOnline = farmAgents.some((agent) => agent.last_seen_at && now - new Date(agent.last_seen_at).getTime() < FRESH_MS);
         const cost = monthlyPriceCents(farmMiners.length) / 100;
         return <article className="card farm clean-farm" key={farm.id}>
-          <div className="farm-title"><span className={`status-dot ${agentOnline ? "" : "off"}`} /><div><h2>{farm.name}</h2><p>{farm.timezone}</p></div></div>
+          <div className="farm-title"><span className={`status-dot ${agentOnline ? "" : "off"}`} /><div><h2>{farm.name}</h2>{farm.timezone && <p>{farm.timezone}</p>}</div></div>
           <div className="farm-stat"><b>{online}<span>/{farmMiners.length}</span></b><small>{t("connectedMachines")}</small></div>
           <div className="farm-stat"><b>USDT {cost.toFixed(2)}</b><small>{t("monthlyCost")}</small></div>
-          <div className="farm-actions"><Link className="button secondary" href={`/farms/${farm.id}`} prefetch>{t("monitor")}</Link><FarmDeleteButton action={deleteFarm.bind(null, farm.id)} farmName={farm.name} /></div>
+          <div className="farm-actions"><Link className="button secondary" href={`/farms/${farm.id}`} prefetch>{t("monitor")}</Link><FarmRenameButton action={renameFarm.bind(null, farm.id)} farmName={farm.name} /><FarmDeleteButton action={deleteFarm.bind(null, farm.id)} farmName={farm.name} /></div>
         </article>;
       })}
     </section>
-    <section className="card setup clean-form-card"><p className="eyebrow">{t("newFarmEyebrow")}</p><h2>{t("addFarm")}</h2><p className="muted">{t("addFarmBody")}</p><form action={addFarm} className="inline-form"><input name="name" placeholder={t("farmNamePlaceholder")} required /><input name="timezone" placeholder={t("timezonePlaceholder")} defaultValue="America/Sao_Paulo" /><button className="button" type="submit">{t("createFarm")}</button></form></section>
+    <section className="card setup clean-form-card"><p className="eyebrow">{t("newFarmEyebrow")}</p><h2>{t("addFarm")}</h2><p className="muted">{t("addFarmBody")}</p><form action={addFarm} className="inline-form"><input name="name" placeholder={t("farmNamePlaceholder")} required /><input name="timezone" placeholder={t("timezonePlaceholder")} /><button className="button" type="submit">{t("createFarm")}</button></form></section>
   </Shell>;
 }

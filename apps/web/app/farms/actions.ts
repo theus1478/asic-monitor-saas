@@ -22,12 +22,22 @@ async function requireOrgId() {
 
 export async function addFarm(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
-  const timezone = String(formData.get("timezone") ?? "America/Sao_Paulo").trim();
+  const timezone = String(formData.get("timezone") ?? "").trim();
   if (!name) return;
 
   const { supabase, organizationId } = await requireOrgId();
-  await supabase.from("farms").insert({ organization_id: organizationId, name, timezone });
+  await supabase.from("farms").insert({ organization_id: organizationId, name, timezone: timezone || null });
   revalidatePath("/farms");
+}
+
+export async function renameFarm(farmId: string, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const { supabase, organizationId } = await requireOrgId();
+  const { error } = await supabase.from("farms").update({ name: trimmed }).eq("id", farmId).eq("organization_id", organizationId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/farms");
+  revalidatePath(`/farms/${farmId}`);
 }
 
 const MINER_TYPES = new Set(["antminer", "whatsminer", "avalon"]);
