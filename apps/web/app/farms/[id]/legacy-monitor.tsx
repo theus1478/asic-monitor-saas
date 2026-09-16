@@ -13,8 +13,9 @@ export type MonitorMiner = {
   power_estimated?: boolean; efficiency_jth?: number | null; voltage_v?: number | null; current_a?: number | null;
   current_estimated?: boolean; model?: string | null; uptime_s?: number | null; accepted?: number | null; rejected?: number | null;
   pool?: string | null; worker?: string | null; cooling_mode?: string | null; cooling_inferred?: boolean; fans_rpm?: number[];
-  boards?: Board[]; error?: string | null; licensed?: boolean;
+  boards?: Board[]; error?: string | null; licensed?: boolean; devfee_pct?: number | null;
 };
+type DevfeeResult = { ok: boolean; message: string };
 type HistoryPoint = { observedAt: string; hashrate: number; power: number };
 type View = "table" | "cards" | "calc";
 type SortKey = "name" | "ip" | "type" | "hashrate_ths" | "power_w" | "uptime_s" | "rejected";
@@ -76,7 +77,7 @@ type FxQuote = { usd_brl: number | null };
 function Calculator({ miners }: { miners: MonitorMiner[] }) {
   const t = useTranslations("farmDetail");
   const locale = useLocale();
-  const [mode, setMode] = useState<"network" | "flat">("network"), [rate, setRate] = useState(.00056), [btc, setBtc] = useState(350000), [usd, setUsd] = useState(.04), [fee, setFee] = useState(2.8), [bonus, setBonus] = useState(0);
+  const [mode, setMode] = useState<"network" | "flat">("network"), [rate, setRate] = useState(.00056), [btc, setBtc] = useState(350000), [usd, setUsd] = useState(.04), [bonus, setBonus] = useState(0);
   const [quote, setQuote] = useState<PriceQuote | null>(null), [quoting, setQuoting] = useState(true);
   const [usdBrl, setUsdBrl] = useState<number | null>(null), [fxQuoting, setFxQuoting] = useState(true);
   const applyQuote = () => fetch("/api/btc-price?currency=BRL").then((r) => r.json()).then((data: PriceQuote) => {
@@ -88,16 +89,20 @@ function Calculator({ miners }: { miners: MonitorMiner[] }) {
   const fetchFx = () => { setFxQuoting(true); applyFx(); };
   useEffect(() => { applyQuote(); applyFx(); }, []);
   const online = miners.filter((miner) => miner.online);
-  const effective = (miner: MonitorMiner) => (n(miner.hashrate_ths) ?? 0) * (miner.type === "avalon" ? 1 : 1 - fee / 100);
+  // Sem devfee individual definido pra essa maquina, nao descontar nada - o
+  // padrao seguro e assumir firmware original (sem devfee), nao um percentual
+  // generico por fabricante (isso era impreciso: devfee depende do firmware
+  // instalado, nao do fabricante do hardware).
+  const effective = (miner: MonitorMiner) => (n(miner.hashrate_ths) ?? 0) * (1 - (miner.devfee_pct ?? 0) / 100);
   const th = online.reduce((sum, miner) => sum + effective(miner), 0), dailyBtc = rate * th / 1000, dailyBrl = dailyBtc * btc, dailyUsd = usd * th * (1 + bonus / 100);
   const money = (value: number, currency: "BRL" | "USD") => value.toLocaleString(locale, { style: "currency", currency, maximumFractionDigits: 2 });
   const brlEquivalent = (usdValue: number) => usdBrl != null ? ` (${money(usdValue * usdBrl, "BRL")})` : "";
   return <section className="lm-calc">
     <div className="lm-panel"><div className="lm-panel-head"><h2>{t("calcParamsTitle")}</h2><div className="lm-c-mode"><button className={mode === "network" ? "active" : ""} onClick={() => setMode("network")}>{t("calcModeNetwork")}</button><button className={mode === "flat" ? "active" : ""} onClick={() => setMode("flat")}>{t("calcModeFlat")}</button></div></div>
-      <div className="lm-calc-params">{mode === "network" ? <><label>{t("networkYield")}<input type="number" step=".00001" value={rate} onChange={(e) => setRate(+e.target.value)} /><small>{t("btcPerPhPerDay")}</small></label><label>{t("btcQuote")}<input type="number" value={btc} onChange={(e) => setBtc(+e.target.value)} /><small>{quoting ? t("fetching") : quote?.ok ? `${quote.source === "coingecko" ? "CoinGecko" : "API-Ninjas"} ${t("quoteNow")}` : quote?.note ?? t("reaisValue")} · <button type="button" className="lm-quote-refresh" onClick={fetchQuote} disabled={quoting}>{t("refreshQuote")}</button></small></label></> : <><label>{t("powerWorth")}<input type="number" step=".001" value={usd} onChange={(e) => setUsd(+e.target.value)} /><small>{t("usdPerThPerDay")}</small></label><label>{t("paymentBonus")}<select value={bonus} onChange={(e) => setBonus(+e.target.value)}><option value="0">0%</option><option value="5">5%</option><option value="7.5">7,5%</option><option value="10">10%</option></select></label><label>{t("exchangeRate")}<span className="lm-live-value">{fxQuoting ? t("fetching") : usdBrl != null ? `R$ ${usdBrl.toFixed(4)}` : t("unavailable")}</span><small>CoinGecko · <button type="button" className="lm-quote-refresh" onClick={fetchFx} disabled={fxQuoting}>{t("refreshQuote")}</button></small></label></>}<label>{t("hashrateLabel")}<span className="lm-live-value">{th.toFixed(2)} TH/s</span><small>{t("hashrateOnlineLive")}</small></label><label>{t("firmwareDevfee")}<input type="number" step=".1" value={fee} onChange={(e) => setFee(+e.target.value)} /><small>{t("exceptAvalon")}</small></label></div>
+      <div className="lm-calc-params">{mode === "network" ? <><label>{t("networkYield")}<input type="number" step=".00001" value={rate} onChange={(e) => setRate(+e.target.value)} /><small>{t("btcPerPhPerDay")}</small></label><label>{t("btcQuote")}<input type="number" value={btc} onChange={(e) => setBtc(+e.target.value)} /><small>{quoting ? t("fetching") : quote?.ok ? `${quote.source === "coingecko" ? "CoinGecko" : "API-Ninjas"} ${t("quoteNow")}` : quote?.note ?? t("reaisValue")} · <button type="button" className="lm-quote-refresh" onClick={fetchQuote} disabled={quoting}>{t("refreshQuote")}</button></small></label></> : <><label>{t("powerWorth")}<input type="number" step=".001" value={usd} onChange={(e) => setUsd(+e.target.value)} /><small>{t("usdPerThPerDay")}</small></label><label>{t("paymentBonus")}<select value={bonus} onChange={(e) => setBonus(+e.target.value)}><option value="0">0%</option><option value="5">5%</option><option value="7.5">7,5%</option><option value="10">10%</option></select></label><label>{t("exchangeRate")}<span className="lm-live-value">{fxQuoting ? t("fetching") : usdBrl != null ? `R$ ${usdBrl.toFixed(4)}` : t("unavailable")}</span><small>CoinGecko · <button type="button" className="lm-quote-refresh" onClick={fetchFx} disabled={fxQuoting}>{t("refreshQuote")}</button></small></label></>}<label>{t("hashrateLabel")}<span className="lm-live-value">{th.toFixed(2)} TH/s</span><small>{t("hashrateOnlineLive")}</small></label></div>
     </div>
     <div className="lm-results">{mode === "network" ? <><Result css="lm-r-btc" label={t("btcYield")} value={`${dailyBtc.toFixed(8)} BTC/dia`} sub={`${(dailyBtc * 30).toFixed(8)} BTC/mês`} /><Result css="lm-r-net" label={t("netPerDay")} value={`${money(dailyBrl, "BRL")}/dia`} sub={`${money(dailyBrl * 30, "BRL")}/mês`} /></> : <><Result css="lm-r-rev" label={t("paymentPerHour")} value={`${money(dailyUsd / 24, "USD")}/h${brlEquivalent(dailyUsd / 24)}`} /><Result css="lm-r-net" label={t("paymentPerDay")} value={`${money(dailyUsd, "USD")}/dia${brlEquivalent(dailyUsd)}`} sub={`${money(dailyUsd * 30, "USD")}/mês${brlEquivalent(dailyUsd * 30)}`} /></>}</div>
-    <div className="lm-panel lm-income"><div className="lm-panel-head"><h2>{t("incomePerMachine")}</h2></div><div className="lm-scroll"><table><thead><tr><th>{t("colMachine2")}</th><th>{t("colType2")}</th><th>{t("colDevfee")}</th><th>TH/s</th><th>{mode === "network" ? "BTC/dia" : "US$/dia"}</th>{mode === "flat" && <th>R$/dia</th>}</tr></thead><tbody>{online.map((miner) => { const usdPerDay = usd * effective(miner) * (1 + bonus / 100); return <tr key={miner.id}><td>{miner.name}</td><td><span className="lm-tag">{miner.type}</span></td><td className="lm-dim">{miner.type === "avalon" ? t("exempt") : `${fee.toFixed(1)}%`}</td><td className="lm-num">{hash(miner.hashrate_ths)}</td><td className="lm-num lm-pos">{mode === "network" ? (rate * effective(miner) / 1000).toFixed(8) : money(usdPerDay, "USD")}</td>{mode === "flat" && <td className="lm-num lm-dim">{usdBrl != null ? money(usdPerDay * usdBrl, "BRL") : "—"}</td>}</tr>; })}</tbody></table></div></div><p className="lm-note">{t("estimateNote")}</p>
+    <div className="lm-panel lm-income"><div className="lm-panel-head"><h2>{t("incomePerMachine")}</h2><p className="lm-note">{t("devfeePerMachineHint")}</p></div><div className="lm-scroll"><table><thead><tr><th>{t("colMachine2")}</th><th>{t("colType2")}</th><th>{t("colDevfee")}</th><th>TH/s</th><th>{mode === "network" ? "BTC/dia" : "US$/dia"}</th>{mode === "flat" && <th>R$/dia</th>}</tr></thead><tbody>{online.map((miner) => { const usdPerDay = usd * effective(miner) * (1 + bonus / 100); return <tr key={miner.id}><td>{miner.name}</td><td><span className="lm-tag">{miner.type}</span></td><td className="lm-dim">{miner.devfee_pct != null ? `${miner.devfee_pct.toFixed(1)}%` : t("exempt")}</td><td className="lm-num">{hash(miner.hashrate_ths)}</td><td className="lm-num lm-pos">{mode === "network" ? (rate * effective(miner) / 1000).toFixed(8) : money(usdPerDay, "USD")}</td>{mode === "flat" && <td className="lm-num lm-dim">{usdBrl != null ? money(usdPerDay * usdBrl, "BRL") : "—"}</td>}</tr>; })}</tbody></table></div></div><p className="lm-note">{t("estimateNote")}</p>
   </section>;
 }
 
@@ -105,7 +110,7 @@ function Result({ css, label, value, sub }: { css: string; label: string; value:
 
 type RebootResult = { ok: boolean; message: string };
 
-export function LegacyMonitor({ farmId, farmName, timezone, miners, history, poolCommands, addMinerAction, deleteMinerAction, rebootMinerAction, agentPanel }: { farmId: string; farmName: string; timezone: string; miners: MonitorMiner[]; history: HistoryPoint[]; poolCommands: PoolCommandSummary[]; addMinerAction: (formData: FormData) => void | Promise<void>; deleteMinerAction: (minerId: string) => void | Promise<void>; rebootMinerAction: (minerId: string) => Promise<RebootResult>; agentPanel: ReactNode }) {
+export function LegacyMonitor({ farmId, farmName, timezone, miners, history, poolCommands, addMinerAction, deleteMinerAction, rebootMinerAction, updateDevfeeAction, agentPanel }: { farmId: string; farmName: string; timezone: string; miners: MonitorMiner[]; history: HistoryPoint[]; poolCommands: PoolCommandSummary[]; addMinerAction: (formData: FormData) => void | Promise<void>; deleteMinerAction: (minerId: string) => void | Promise<void>; rebootMinerAction: (minerId: string) => Promise<RebootResult>; updateDevfeeAction: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult>; agentPanel: ReactNode }) {
   const t = useTranslations("farmDetail");
   const router = useRouter(); const [pending, startTransition] = useTransition();
   const [view, setView] = useState<View>("table"), [range, setRange] = useState(30), [query, setQuery] = useState(""), [type, setType] = useState(""), [status, setStatus] = useState(""), [sortKey, setSortKey] = useState<SortKey>("name"), [direction, setDirection] = useState(1), [selected, setSelected] = useState<MonitorMiner | null>(null), [addOpen, setAddOpen] = useState(false), [setup, setSetup] = useState(false), [poolOpen, setPoolOpen] = useState(false), [poolMinerId, setPoolMinerId] = useState<string | null>(null);
@@ -123,7 +128,7 @@ export function LegacyMonitor({ farmId, farmName, timezone, miners, history, poo
       {view === "calc" ? <Calculator miners={miners} /> : <><div className="lm-bar"><input type="search" placeholder={t("filterPlaceholder")} value={query} onChange={(e) => setQuery(e.target.value)} /><select value={type} onChange={(e) => setType(e.target.value)}><option value="">{t("allTypes")}</option><option value="antminer">Antminer</option><option value="whatsminer">Whatsminer</option><option value="avalon">Avalon</option></select><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">{t("onlineAndOffline")}</option><option value="on">{t("onlyOnline")}</option><option value="off">{t("onlyOffline")}</option></select><span /><button className="lm-btn lm-pool-button" onClick={() => { setPoolMinerId(null); setPoolOpen(true); }}>⇄ {t("changePool")}</button><button className="lm-btn lm-primary" onClick={() => setAddOpen(true)}>+ {t("addMachine")}</button><button className="lm-btn" onClick={() => startTransition(() => router.refresh())}>↻ {t("refresh")}</button></div>{view === "table" ? <div className="lm-tablewrap"><div className="lm-scroll"><table><thead><tr>{th(t("colMachine"), "name")}{th(t("colIp"), "ip")}{th(t("colType"), "type")}{th("TH/s", "hashrate_ths")}{th(t("consumptionLabel"), "power_w")}{th(t("colVoltageCurrent"))}{th(t("colHashboards"))}{th(t("colCooling"))}{th(t("colUptime"), "uptime_s")}{th(t("colRejected"), "rejected")}</tr></thead><tbody>{rows.length ? rows.map((miner) => <MinerRow key={miner.id} miner={miner} open={() => setSelected(miner)} />) : <tr><td colSpan={10} className="lm-empty">{t("noMachinesMatch")}</td></tr>}</tbody></table></div></div> : <div className="lm-cards">{rows.map((miner) => <MinerCard key={miner.id} miner={miner} open={() => setSelected(miner)} />)}</div>}</>}
       {setup && <section className="lm-setup">{agentPanel}</section>}
       <PoolCommandHistory commands={poolCommands} />
-    </main>{(selected || addOpen) && <Modal miner={selected} close={() => { setSelected(null); setAddOpen(false); }} addAction={addMinerAction} changePool={(minerId) => { setSelected(null); setPoolMinerId(minerId); setPoolOpen(true); }} deleteMiner={removeMiner} rebootMiner={restartMiner} />}
+    </main>{(selected || addOpen) && <Modal miner={selected} close={() => { setSelected(null); setAddOpen(false); }} addAction={addMinerAction} changePool={(minerId) => { setSelected(null); setPoolMinerId(minerId); setPoolOpen(true); }} deleteMiner={removeMiner} rebootMiner={restartMiner} updateDevfee={updateDevfeeAction} />}
     {poolOpen && <PoolModal key={poolMinerId ?? "batch"} farmId={farmId} miners={miners} initialMinerId={poolMinerId} onClose={() => setPoolOpen(false)} />}
   </div>;
 }
@@ -141,7 +146,28 @@ function MinerCard({ miner, open }: { miner: MonitorMiner; open: () => void }) {
   if (miner.licensed === false) return <article className="lm-mcard lm-unlicensed" onClick={open}><div className="lm-mc-top"><span className="lm-dot lm-off" /><div><b>{miner.name}</b><small>{miner.ip} · {miner.type}</small></div></div><p className="lm-license-cell">{t("awaitingLicense")}<Link href="/billing" onClick={(e) => e.stopPropagation()}>{t("buyLicense")}</Link></p></article>;
   return <article className={`lm-mcard ${miner.online ? "" : "lm-offline"}`} onClick={open}><div className="lm-mc-top"><span className={`lm-dot ${miner.online ? "lm-on" : "lm-off"}`} /><div><b>{miner.name}</b><small>{miner.ip} · {miner.model ?? miner.type}</small></div><span className="lm-tag">{miner.type}</span></div><div className="lm-mc-metrics"><div><span>{t("hashrateLabel")}</span><strong>{hash(miner.hashrate_ths)}<small> TH/s</small></strong></div><div><span>{t("consumptionLabel")}</span><strong>{watts(miner.power_w, locale)}<small> W</small></strong></div></div><p className="lm-strip-label">{t("hashboardsLabel")}</p><ThermalStrip miner={miner} large /><div className="lm-card-cooling"><Cooling miner={miner} /></div><footer><VA miner={miner} /><span>{uptime(miner.uptime_s)}</span><span>{t("rejectedShort", { count: n(miner.rejected) ?? 0 })}</span></footer></article>;
 }
-function Modal({ miner, close, addAction, changePool, deleteMiner, rebootMiner }: { miner: MonitorMiner | null; close: () => void; addAction: (formData: FormData) => void | Promise<void>; changePool: (minerId: string) => void; deleteMiner: (minerId: string) => void; rebootMiner: (minerId: string) => Promise<RebootResult> }) {
+function DevfeeEditor({ miner, updateDevfee }: { miner: MonitorMiner; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
+  const t = useTranslations("farmDetail");
+  const [value, setValue] = useState(miner.devfee_pct != null ? String(miner.devfee_pct) : "");
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<DevfeeResult | null>(null);
+  const save = async () => {
+    const trimmed = value.trim();
+    if (trimmed !== "" && !Number.isFinite(Number(trimmed))) { setFeedback({ ok: false, message: t("devfeeInvalid") }); return; }
+    setSaving(true); setFeedback(null);
+    const result = await updateDevfee(miner.id, trimmed === "" ? null : Number(trimmed));
+    setSaving(false);
+    setFeedback(result);
+  };
+  return <div className="lm-devfee">
+    <label>{t("devfeeLabel")}<input type="number" step=".1" min="0" max="100" placeholder={t("devfeeNonePlaceholder")} value={value} onChange={(e) => setValue(e.target.value)} /></label>
+    <button className="lm-btn" type="button" disabled={saving} onClick={save}>{saving ? t("devfeeSaving") : t("devfeeSave")}</button>
+    <p className="lm-devfee-hint">{t("devfeeHint")}</p>
+    {feedback && <p className={`lm-command-feedback ${feedback.ok ? "ok" : "error"}`}>{feedback.message}</p>}
+  </div>;
+}
+
+function Modal({ miner, close, addAction, changePool, deleteMiner, rebootMiner, updateDevfee }: { miner: MonitorMiner | null; close: () => void; addAction: (formData: FormData) => void | Promise<void>; changePool: (minerId: string) => void; deleteMiner: (minerId: string) => void; rebootMiner: (minerId: string) => Promise<RebootResult>; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
   const t = useTranslations("farmDetail");
   const locale = useLocale();
   const [rebooting, setRebooting] = useState(false);
@@ -162,6 +188,7 @@ function Modal({ miner, close, addAction, changePool, deleteMiner, rebootMiner }
         : <>
             <div className="lm-kv"><Detail label={t("detailModel")} value={miner.model ?? "—"} /><Detail label={t("detailCurrentHashrate")} value={`${hash(miner.hashrate_ths)} TH/s`} /><Detail label={t("detailAvgHashrate")} value={`${hash(miner.hashrate_avg_ths)} TH/s`} /><Detail label={t("detailConsumption")} value={`${watts(miner.power_w, locale)} W`} /><Detail label={t("detailVoltageCurrent")} value={<VA miner={miner} />} /><Detail label={t("detailEfficiency")} value={`${n(miner.efficiency_jth)?.toFixed(1) ?? "—"} J/TH`} /><Detail label={t("detailCooling")} value={<Cooling miner={miner} full />} /><Detail label={t("detailUptime")} value={uptime(miner.uptime_s)} /><Detail label={t("detailAcceptedShares")} value={`${n(miner.accepted) ?? 0}`} /><Detail label={t("detailRejectedShares")} value={`${n(miner.rejected) ?? 0}`} /><Detail label={t("detailPool")} value={miner.pool ?? "—"} /><Detail label={t("detailWorker")} value={miner.worker ?? "—"} /></div>
             <h4>{t("temperaturePerBoard")}</h4><ThermalStrip miner={miner} large />
+            <h4>{t("devfeeLabel")}</h4><DevfeeEditor key={miner.id} miner={miner} updateDevfee={updateDevfee} />
             {rebootFeedback && <p className={`lm-command-feedback ${rebootFeedback.ok ? "ok" : "error"}`}>{rebootFeedback.message}</p>}
             <div className="lm-detail-actions"><button className="lm-btn lm-pool-button" onClick={() => changePool(miner.id)}>⇄ {t("changePoolForMachine")}</button><button className="lm-btn" disabled={rebooting} onClick={doReboot}>{rebooting ? t("rebooting") : `⟲ ${t("rebootMachine")}`}</button></div>
           </>}

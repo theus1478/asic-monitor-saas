@@ -7,6 +7,8 @@ import { LiveRefresh } from "../farms/live-refresh";
 
 type Miner = { id: string; farm_id: string; name: string };
 type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; power_w: number | null; observed_at: string };
+type Board = { name?: string; hashrate_ths?: number | null };
+type AttentionPayload = { miner_id: string; payload: { boards?: Board[]; error?: string | null } | null };
 const FRESH_METRIC_MS = 90_000;
 
 function formatHashrate(ths: number) {
@@ -77,9 +79,40 @@ export default async function DashboardPage() {
     return { ...farm, online, total: farmMiners.length, hashrateThs };
   });
 
+  // Só entra aqui quem não está produzindo hashrate nenhum (offline, ou
+  // online mas reportando 0) - não é mais "hashrate baixo" por um limite
+  // arbitrário, já que máquinas legítimas podem ter hashrate baixo por design.
   const attention = minerList
-    .filter((m) => !isMinerOnline(m.id) || (latestByMiner.get(m.id)?.hashrate_ths ?? 0) < 10)
+    .filter((m) => !isMinerOnline(m.id) || (latestByMiner.get(m.id)?.hashrate_ths ?? 0) <= 0)
     .slice(0, 4);
+  const attentionIds = attention.map((m) => m.id);
+  const { data: attentionPayloads } = attentionIds.length
+    ? await supabase
+        .from("miner_metrics")
+        .select("miner_id, payload")
+        .in("miner_id", attentionIds)
+        .order("observed_at", { ascending: false })
+        .limit(attentionIds.length * 3)
+    : { data: [] as AttentionPayload[] };
+  const latestPayloadByMiner = new Map<string, AttentionPayload["payload"]>();
+  for (const row of attentionPayloads ?? []) {
+    if (!latestPayloadByMiner.has(row.miner_id)) latestPayloadByMiner.set(row.miner_id, row.payload);
+  }
+
+  function attentionReason(minerId: string, online: boolean): string {
+    if (!online) return t("offlineOrUnresponsive");
+    const payload = latestPayloadByMiner.get(minerId);
+    const boards = Array.isArray(payload?.boards) ? payload.boards : [];
+    const failedBoards = boards
+      .map((board, index) => ({ index, hashrate: board.hashrate_ths }))
+      .filter((board) => !(typeof board.hashrate === "number" && board.hashrate > 0));
+    if (boards.length > 0 && failedBoards.length > 0 && failedBoards.length < boards.length) {
+      return t("hashboardFailure", { boards: failedBoards.map((board) => board.index + 1).join(", ") });
+    }
+    if (boards.length > 0 && failedBoards.length === boards.length) return t("allHashboardsFailure");
+    if (payload?.error) return String(payload.error).slice(0, 140);
+    return t("noHashrateGeneric");
+  }
 
   // Série real: agrupa leituras pelo mesmo observed_at (um lote = um ciclo do agente)
   // e soma o hashrate de todas as máquinas naquele instante.
@@ -130,7 +163,7 @@ export default async function DashboardPage() {
         <h2>{t("needsAttention")}</h2>
         {attention.length === 0
           ? <p className="muted">{t("allOnlineAndHealthy")}</p>
-          : attention.map((m) => { const metric = latestByMiner.get(m.id); const lowHash = isMinerOnline(m.id) && (metric?.hashrate_ths ?? 0) < 10; return <div className="alert-row" key={m.id}><span className={`status-dot ${lowHash ? "warn" : "off"}`} />{m.name}<small>{lowHash ? t("lowHashrate", { value: (metric?.hashrate_ths ?? 0).toFixed(2) }) : t("offlineOrUnresponsive")}</small></div>; })}
+          : attention.map((m) => { const online = isMinerOnline(m.id); return <div className="alert-row" key={m.id}><span className={`status-dot ${online ? "warn" : "off"}`} />{m.name}<small>{attentionReason(m.id, online)}</small></div>; })}
         <Link href="/farms" className="text-link">{t("seeAllMachines")}</Link>
       </article>
     </section>

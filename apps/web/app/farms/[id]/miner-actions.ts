@@ -23,6 +23,17 @@ export async function deleteMiner(farmId: string, minerId: string) {
   revalidatePath(`/farms/${farmId}`);
 }
 
+export async function updateMinerDevfee(farmId: string, minerId: string, devfeePct: number | null) {
+  if (devfeePct != null && (!Number.isFinite(devfeePct) || devfeePct < 0 || devfeePct > 100)) {
+    return { ok: false, message: "Informe um percentual entre 0 e 100, ou deixe em branco." };
+  }
+  const { supabase } = await requireFarmMembership(farmId);
+  const { error } = await supabase.from("miners").update({ devfee_pct: devfeePct }).eq("id", minerId).eq("farm_id", farmId);
+  if (error) return { ok: false, message: error.message };
+  revalidatePath(`/farms/${farmId}`);
+  return { ok: true, message: "Devfee atualizado." };
+}
+
 const DEFAULT_CREDENTIALS: Record<string, { username: string; password: string }> = {
   avalon: { username: "root", password: "root" },
   antminer: { username: "admin", password: "admin" },
