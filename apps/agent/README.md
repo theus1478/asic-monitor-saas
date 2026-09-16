@@ -87,6 +87,24 @@ Reboot costuma derrubar a conexão no meio do envio; uma queda logo após
 mandar o comando é tratada como sucesso provável, não como falha. Exige a
 versão 0.5.1 ou posterior do executável.
 
+## Detecção de fabricante no escaneamento
+
+Avalon e Antminer com firmware original (bmminer — sem VNish instalado, o que
+inclui placas controladoras AML, Xil e BB) falam o mesmo protocolo de socket
+cgminer na porta 4028 que o Whatsminer usa, então a porta aberta sozinha não
+diz o fabricante. O escaneamento por faixa de IP confirma isso enviando um
+comando extra (`estats`/`summary`) e olhando campos característicos de cada
+firmware (`MM ID*` do Avalon, `Miner Type` do BixBit/Whatsminer); sem nenhum
+dos dois, assume Antminer com firmware original. Exige a versão 0.6.0 ou
+posterior do executável.
+
+A telemetria de Antminer sem VNish (mesmas placas AML, Xil e BB) usa o mesmo
+fallback: se a API HTTP do VNish (`/api/v1/summary`) não responder, o coletor
+cai pro socket cgminer padrão e lê temperatura/fan pelos nomes de campo
+genéricos do bmminer (`temp*`, `fan*`), sem tensão/corrente (Bitmain não
+expõe esse dado em nenhum dos dois firmwares) e com potência estimada por
+eficiência W/TH, igual ao caminho VNish quando o consumo real vem zerado.
+
 ## Tensão e corrente
 
 Só Avalon reporta tensão/corrente real (leitura `PS[]` do próprio firmware).

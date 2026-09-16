@@ -46,3 +46,30 @@ def test_validate_login_rejects_bad_url(gui_app):
 def test_validate_login_rejects_empty_token(gui_app):
     with pytest.raises(RuntimeError, match="token"):
         gui_app.validate_login("https://example.com/api/agent/metrics", "")
+
+
+def test_classify_cgminer_device_detects_avalon_by_mm_id(gui_app, monkeypatch):
+    def fake_command(ip, command, timeout=1.2):
+        if command == "estats":
+            return {"STATS": [{"MM ID0": "AUC01"}]}
+        return {"SUMMARY": [{}]}
+
+    monkeypatch.setattr(gui_app, "_cgminer_command", fake_command)
+    assert gui_app._classify_cgminer_device("192.168.0.10") == "avalon"
+
+
+def test_classify_cgminer_device_detects_whatsminer_by_miner_type(gui_app, monkeypatch):
+    def fake_command(ip, command, timeout=1.2):
+        if command == "estats":
+            return None
+        return {"SUMMARY": [{"Miner Type": "M30S++VE30"}]}
+
+    monkeypatch.setattr(gui_app, "_cgminer_command", fake_command)
+    assert gui_app._classify_cgminer_device("192.168.0.11") == "whatsminer"
+
+
+def test_classify_cgminer_device_falls_back_to_antminer_stock_firmware(gui_app, monkeypatch):
+    """Nem 'MM ID' (Avalon) nem 'Miner Type' (Whatsminer) -> Antminer com
+    firmware original (placas AML, Xil e BB), que fala o mesmo socket."""
+    monkeypatch.setattr(gui_app, "_cgminer_command", lambda ip, command, timeout=1.2: None)
+    assert gui_app._classify_cgminer_device("192.168.0.12") == "antminer"

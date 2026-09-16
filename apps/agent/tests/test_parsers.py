@@ -59,6 +59,32 @@ class ParserBoardsAndCoolingTests(unittest.TestCase):
         self.assertEqual(rec["cooling_mode"], "immersion")
         self.assertTrue(rec["cooling_inferred"])
 
+    def test_antminer_stock_parses_generic_bmminer_temp_and_fan_fields(self):
+        """Firmware original (sem VNish - placas AML, Xil e BB) fala o socket
+        cgminer padrao com nomes de campo do Bitmain, diferentes do Whatsminer."""
+        summary = {"SUMMARY": [{"GHS av": 103500, "GHS 5s": 104000, "Elapsed": 3600, "Accepted": 500, "Rejected": 3}]}
+        stats = {"STATS": [{"STATS": 0}, {
+            "STATS": 1, "Type": "Antminer S19 Pro",
+            "temp1": 32, "temp2": 34, "temp3": 33,
+            "temp2_1": 68, "temp2_2": 70, "temp2_3": 66,
+            "fan1": 3200, "fan2": 3300,
+        }]}
+        rec = miners.parse_antminer_stock("S19 PRO", "192.168.0.4", 4028, summary, stats, {})
+        self.assertEqual(rec["type"], "antminer")
+        self.assertEqual(rec["model"], "Antminer S19 Pro")
+        self.assertAlmostEqual(rec["hashrate_ths"], 104.0)
+        self.assertEqual(rec["temp_c"], 70)
+        self.assertEqual(sorted(rec["fans_rpm"]), [3200, 3300])
+        self.assertIsNone(rec["voltage_v"])
+        self.assertTrue(rec["power_estimated"])
+
+    def test_antminer_stock_without_stats_has_no_temp_or_fans(self):
+        summary = {"SUMMARY": [{"GHS av": 50000, "Elapsed": 100}]}
+        rec = miners.parse_antminer_stock("S19", "192.168.0.5", 4028, summary, {}, {})
+        self.assertIsNone(rec["temp_c"])
+        self.assertEqual(rec["fans_rpm"], [])
+        self.assertIsNone(rec["model"])
+
     def test_avalon_parses_per_board_temp_from_mm_string_and_infers_cooling(self):
         mm = "MM ID0[AUC01]Ver[1246-N-90-...]MTavg[62 64 61]MTmax[70 72 69]MGHS[38000 39000 37500]PS[0 0000 1200 0000 0000]Fan1[3200]Fan2[3300]"
         stats = {"STATS": [{"MM ID0": mm}]}

@@ -3,7 +3,10 @@ Clientes de API por fabricante, somente leitura:
 
 - Antminer  -> Vnish, via API HTTP  http://IP/api/v1/summary
                (traz power_consumption medido; alguns modelos devolvem 0 e caem
-                pra estimativa por eficiencia W/TH).
+                pra estimativa por eficiencia W/TH). Quando a maquina nao tem
+                VNish instalado (firmware original bmminer - inclui placas
+                controladoras AML, Xil e BB), cai pro socket 4028 padrao cgminer
+                (ver parse_antminer_stock).
 - Whatsminer-> BixBit, via socket 4028 "summary" (dados vem embrulhados em "Msg").
 - Avalon    -> firmware oficial, via socket 4028 "estats" (string MM ID + PS[]).
 """
@@ -37,6 +40,12 @@ EFFICIENCY_WTH = {
     "L7": 0.0,  # Scrypt: unidade diferente, nao estimar
 }
 GENERIC_WTH = 30.0
+
+# Chaves de temperatura/fan no bloco STATS variam por modelo/versao de firmware
+# do bmminer (temp1, temp2_1, temp3_3... / fan1, fan2...) - casar pelo padrao
+# em vez de um layout fixo, ja que nao ha um schema unico documentado.
+_STOCK_TEMP_KEY = re.compile(r"^temp\d")
+_STOCK_FAN_KEY = re.compile(r"^fan\d+$", re.IGNORECASE)
 
 # Tensao de LINHA (V) usada para derivar a corrente de entrada quando o
 # consumo e conhecido mas a corrente nao e reportada pelo firmware.
@@ -426,6 +435,47 @@ def parse_antminer_vnish(name, ip, port, summary_json):
     return _finalize(rec)
 
 
+def parse_antminer_stock(name, ip, port, summary_resp, stats_resp, pools_resp):
+    """Antminer com firmware original (bmminer), sem VNish instalado - fala o
+    mesmo socket cgminer padrao (porta 4028) que Whatsminer e Avalon usam, so
+    que com os nomes de campo do Bitmain. Cobre qualquer placa controladora
+    (AML, Xil, BB) que nao exponha a API HTTP do VNish (ver poll_miner)."""
+    s = _summary0(summary_resp)
+    rec = _base_record(name, ip, port, "antminer")
+    rec["hashrate_ths"] = _pick_hashrate(s, ["GHS 5s", "MHS 5s", "GHS av", "MHS av"])
+    rec["hashrate_avg_ths"] = _pick_hashrate(s, ["GHS av", "MHS av"])
+    rec["uptime_s"] = int(_f(_first(s, "Elapsed"), 0))
+    rec["accepted"] = int(_f(_first(s, "Accepted"), 0))
+    rec["rejected"] = int(_f(_first(s, "Rejected"), 0))
+
+    model, temps, fans = None, [], []
+    for block in _get_list(stats_resp, "STATS"):
+        if not isinstance(block, dict):
+            continue
+        model = model or block.get("Type")
+        for key, value in block.items():
+            v = _f(value)
+            if v is None or v <= 0:
+                continue
+            if _STOCK_TEMP_KEY.match(key):
+                temps.append(v)
+            elif _STOCK_FAN_KEY.match(key):
+                fans.append(v)
+    rec["model"] = model
+    rec["temp_c"] = max(temps) if temps else None
+    rec["fans_rpm"] = fans
+
+    # Bitmain (com ou sem VNish) nao expoe consumo real no firmware original -
+    # so estimativa por eficiencia W/TH, igual ao caminho VNish quando o
+    # power_consumption vem zerado.
+    w, est = _estimate_power(rec["model"], rec.get("hashrate_avg_ths") or rec["hashrate_ths"])
+    rec["power_w"] = w
+    rec["power_estimated"] = est
+
+    _apply_pool_socket(rec, pools_resp)
+    return _finalize(rec)
+
+
 def parse_avalon(name, ip, port, summary_resp, stats_resp, pools_resp):
     s = _summary0(summary_resp)
     rec = _base_record(name, ip, port, "avalon")
@@ -753,8 +803,24 @@ async def poll_miner(miner):
     mtype = miner.get("type", "antminer").lower()
     try:
         if mtype == "antminer":
-            sj = await http_get_json(f"http://{ip}/api/v1/summary")
-            return parse_antminer_vnish(name, ip, port, sj)
+            try:
+                sj = await http_get_json(f"http://{ip}/api/v1/summary")
+                return parse_antminer_vnish(name, ip, port, sj)
+            except Exception:
+                pass
+            # Sem VNish (firmware original bmminer - inclui placas AML, Xil e
+            # BB): mesmo socket cgminer padrao usado por Whatsminer/Avalon.
+            summary = await api_call(ip, port, "summary")
+            stats, pools = {}, {}
+            try:
+                stats = await api_call(ip, port, "stats")
+            except Exception:
+                pass
+            try:
+                pools = await api_call(ip, port, "pools")
+            except Exception:
+                pass
+            return parse_antminer_stock(name, ip, port, summary, stats, pools)
 
         if mtype == "whatsminer":
             summary = await api_call(ip, port, "summary")

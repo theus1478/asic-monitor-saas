@@ -29,7 +29,7 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner
 
-AGENT_VERSION = "0.5.1"
+AGENT_VERSION = "0.6.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
@@ -121,6 +121,61 @@ def _probe_antminer_http(ip: str, timeout: float = 1.2) -> bool:
         return False
 
 
+def _cgminer_command(ip: str, command: str, timeout: float = 1.2) -> dict | None:
+    """Envia um comando ao socket cgminer/bmminer (porta 4028); None se falhar."""
+    try:
+        with socket.create_connection((ip, 4028), timeout=timeout) as sock:
+            sock.sendall(json.dumps({"command": command}).encode())
+            sock.settimeout(timeout)
+            data = b""
+            while len(data) < 65536:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        text = data.decode("utf-8", errors="ignore").replace("\x00", "").strip()
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def _cgminer_list(resp: dict | None, key: str) -> list:
+    """Mesma lógica de miners._get_list: lida com o embrulho 'Msg' do BixBit."""
+    if not isinstance(resp, dict):
+        return []
+    if isinstance(resp.get(key), list):
+        return resp[key]
+    msg = resp.get("Msg")
+    if isinstance(msg, dict) and isinstance(msg.get(key), list):
+        return msg[key]
+    if isinstance(msg, list) and key == "STATS":
+        return msg
+    return []
+
+
+def _classify_cgminer_device(ip: str) -> str:
+    """Dispositivo já confirmado como família cgminer (porta 4028 responde ao
+    protocolo) - descobre o fabricante real em vez de assumir Whatsminer pra
+    tudo. Avalon e Antminer com firmware original (sem VNish - placas AML, Xil
+    e BB) falam o mesmo protocolo de socket, então a porta aberta sozinha não
+    diferencia o fabricante."""
+    stats = _cgminer_command(ip, "estats")
+    for block in _cgminer_list(stats, "STATS"):
+        if isinstance(block, dict) and any(str(key).startswith("MM ID") for key in block):
+            return "avalon"
+
+    summary = _cgminer_command(ip, "summary")
+    summary_list = _cgminer_list(summary, "SUMMARY")
+    if summary_list and "Miner Type" in summary_list[0]:
+        return "whatsminer"
+
+    # Sobrou: família cgminer confirmada, sem "MM ID" (Avalon) nem "Miner Type"
+    # (Whatsminer/BixBit) -> Antminer com firmware original (bmminer), o que
+    # inclui placas controladoras AML, Xil e BB - todas falam o mesmo socket.
+    return "antminer"
+
+
 def hosts_in_range(start_ip: str, end_ip: str) -> list[str]:
     start = ipaddress.IPv4Address(start_ip)
     end = ipaddress.IPv4Address(end_ip)
@@ -141,7 +196,7 @@ def scan_range(start_ip: str, end_ip: str, progress_callback=None) -> list[dict]
         if _tcp_open(ip, 80, timeout=0.3) and _probe_antminer_http(ip):
             return {"ip": ip, "port": 4028, "type": "antminer", "name": ip}
         if _tcp_open(ip, 4028, timeout=0.3) and _probe_cgminer_family(ip):
-            return {"ip": ip, "port": 4028, "type": "whatsminer", "name": ip}
+            return {"ip": ip, "port": 4028, "type": _classify_cgminer_device(ip), "name": ip}
         return None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=48) as pool:
@@ -472,6 +527,11 @@ class App(tk.Tk):
             ip = ip_entry.get().strip()
             if not ip:
                 status_label.config(text="Informe o IP.")
+                return
+            try:
+                ipaddress.IPv4Address(ip)
+            except ValueError:
+                status_label.config(text="IP inválido — use o formato 192.168.0.10.")
                 return
             try:
                 port = int(port_entry.get() or 4028)
