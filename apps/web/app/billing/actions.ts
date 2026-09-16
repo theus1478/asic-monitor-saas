@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getOrganizationId } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
-import { monthlyPriceCents, SOLANA_USDT_MINT, withUniqueAmountTail } from "../../lib/pricing";
+import { monthlyPriceCents, SOLANA_USDT_MINT } from "../../lib/pricing";
 import { recordAffiliateCommissionForInvoice } from "../../lib/affiliate";
 import { deriveInvoiceKeypair, sweepInvoiceFunds } from "../../lib/solana-wallet";
 
@@ -21,7 +21,7 @@ export async function createLicensePurchase(formData: FormData) {
   }
   const reference = `LIC-${randomUUID()}`;
   const depositAddress = deriveInvoiceKeypair(reference).publicKey.toBase58();
-  const amountUsdt = withUniqueAmountTail(monthlyPriceCents(quantity) / 100, reference);
+  const amountUsdt = monthlyPriceCents(quantity) / 100;
   const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: amountUsdt, wallet_address: depositAddress, deposit_address: depositAddress, network: "solana", status: "pending", due_at: new Date(Date.now() + 30 * 60_000).toISOString() }).select("id").single();
   if (error || !invoice) redirect(`/billing?error=${encodeURIComponent(error?.message ?? "Não foi possível gerar a cobrança.")}`);
   const batch = await supabase.from("license_batches").insert({ organization_id: organizationId, invoice_id: invoice.id, quantity, status: "pending" });

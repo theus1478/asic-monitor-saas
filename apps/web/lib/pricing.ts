@@ -32,21 +32,6 @@ export const BILLING_WALLET_PUBLIC_KEY =
   process.env.NEXT_PUBLIC_BILLING_WALLET_PUBLIC_KEY ?? "HixKsNWU1Zv4mtajtecLdXYiXLvsNHdpjSSGwXdJkpWn";
 
 /**
- * Adiciona uma fração de centavo pseudoaleatória e determinística ao valor
- * base, pra cada cobrança pedir um valor exato diferente das outras. É o
- * mesmo truque que Coinbase Commerce, BTCPay etc. usam: identifica quem
- * pagou pelo valor exato recebido, sem depender de memo — funciona mesmo
- * quando o cliente saca direto de uma exchange (Binance etc.), que não deixa
- * anexar memo/tag num saque de Solana.
- */
-export function withUniqueAmountTail(baseAmountUsdt: number, seed: string) {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  const tail = (hash % 9900) + 1; // 1..9900 -> 0.000001 a 0.0099 USDT
-  return Math.round((baseAmountUsdt + tail / 1_000_000) * 1_000_000) / 1_000_000;
-}
-
-/**
  * Monta um Solana Pay Transfer Request URI apontando para o endereço de
  * depósito exclusivo da fatura (ver lib/solana-wallet.ts). O endereço sozinho
  * já identifica o cliente, então o memo aqui é só um reforço opcional — segue
@@ -55,7 +40,7 @@ export function withUniqueAmountTail(baseAmountUsdt: number, seed: string) {
  */
 export function buildSolanaPayUri(amountUsdt: number, reference: string, destinationAddress: string) {
   const params = new URLSearchParams({
-    amount: amountUsdt.toFixed(6),
+    amount: amountUsdt.toFixed(2),
     "spl-token": SOLANA_USDT_MINT,
     label: "ASIC Monitor Cloud",
     message: `Assinatura mensal — ref. ${reference}`,
