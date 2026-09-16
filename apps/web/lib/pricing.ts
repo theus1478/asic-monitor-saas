@@ -46,8 +46,14 @@ export function withUniqueAmountTail(baseAmountUsdt: number, seed: string) {
   return Math.round((baseAmountUsdt + tail / 1_000_000) * 1_000_000) / 1_000_000;
 }
 
-/** Monta um Solana Pay Transfer Request URI para o valor exato da fatura. */
-export function buildSolanaPayUri(amountUsdt: number, reference: string) {
+/**
+ * Monta um Solana Pay Transfer Request URI apontando para o endereço de
+ * depósito exclusivo da fatura (ver lib/solana-wallet.ts). O endereço sozinho
+ * já identifica o cliente, então o memo aqui é só um reforço opcional — segue
+ * incluído porque carteiras compatíveis com Solana Pay o preenchem de graça,
+ * mas saques diretos de exchange (sem suporte a memo) pagam normalmente.
+ */
+export function buildSolanaPayUri(amountUsdt: number, reference: string, destinationAddress: string) {
   const params = new URLSearchParams({
     amount: amountUsdt.toFixed(6),
     "spl-token": SOLANA_USDT_MINT,
@@ -55,5 +61,5 @@ export function buildSolanaPayUri(amountUsdt: number, reference: string) {
     message: `Assinatura mensal — ref. ${reference}`,
     memo: reference,
   });
-  return `solana:${BILLING_WALLET_PUBLIC_KEY}?${params.toString()}`;
+  return `solana:${destinationAddress}?${params.toString()}`;
 }

@@ -166,7 +166,7 @@
     "generateCharge": "Wygeneruj płatność",
     "flatPrice": "US$ 1,00 za urządzenie, co miesiąc",
     "chargeGeneratedEyebrow": "PŁATNOŚĆ WYGENEROWANA",
-    "sendExactAmount": "Wyślij dokładnie tę kwotę, ze wszystkimi miejscami po przecinku — działa nawet przy wypłacie prosto z giełdy, bez potrzeby memo.",
+    "sendExactAmount": "Ten adres jest przypisany wyłącznie do tej płatności. Wyślij dokładnie tę kwotę, ze wszystkimi miejscami po przecinku — działa nawet przy wypłacie prosto z giełdy, bez potrzeby memo.",
     "copyAmount": "Kopiuj dokładną kwotę",
     "awaitingConfirmation": "Oczekuje na potwierdzenie",
     "chargeValidity": "Ważność płatności",

@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getOrganizationId } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
-import { BILLING_WALLET_PUBLIC_KEY, monthlyPriceCents, SOLANA_USDT_MINT, withUniqueAmountTail } from "../../lib/pricing";
+import { monthlyPriceCents, SOLANA_USDT_MINT, withUniqueAmountTail } from "../../lib/pricing";
 import { recordAffiliateCommissionForInvoice } from "../../lib/affiliate";
+import { deriveInvoiceKeypair, sweepInvoiceFunds } from "../../lib/solana-wallet";
 
 export async function createLicensePurchase(formData: FormData) {
   const quantity = Math.max(1, Math.min(9999, Math.round(Number(formData.get("quantity")) || 0)));
@@ -19,8 +20,9 @@ export async function createLicensePurchase(formData: FormData) {
     subscription = result.data;
   }
   const reference = `LIC-${randomUUID()}`;
+  const depositAddress = deriveInvoiceKeypair(reference).publicKey.toBase58();
   const amountUsdt = withUniqueAmountTail(monthlyPriceCents(quantity) / 100, reference);
-  const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: amountUsdt, wallet_address: BILLING_WALLET_PUBLIC_KEY, network: "solana", status: "pending", due_at: new Date(Date.now() + 30 * 60_000).toISOString() }).select("id").single();
+  const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: amountUsdt, wallet_address: depositAddress, deposit_address: depositAddress, network: "solana", status: "pending", due_at: new Date(Date.now() + 30 * 60_000).toISOString() }).select("id").single();
   if (error || !invoice) redirect(`/billing?error=${encodeURIComponent(error?.message ?? "Não foi possível gerar a cobrança.")}`);
   const batch = await supabase.from("license_batches").insert({ organization_id: organizationId, invoice_id: invoice.id, quantity, status: "pending" });
   if (batch.error) redirect(`/billing?error=${encodeURIComponent(batch.error.message)}`);
@@ -30,7 +32,6 @@ export async function createLicensePurchase(formData: FormData) {
 type RpcTokenBalance = { mint?: string; owner?: string; uiTokenAmount?: { amount?: string; decimals?: number } };
 type ParsedTransaction = {
   meta?: { err?: unknown; preTokenBalances?: RpcTokenBalance[]; postTokenBalances?: RpcTokenBalance[] };
-  transaction?: { message?: { instructions?: Array<{ program?: string; parsed?: unknown }> } };
 };
 
 function tokenTotal(balances: RpcTokenBalance[] | undefined, owner: string) {
@@ -38,11 +39,6 @@ function tokenTotal(balances: RpcTokenBalance[] | undefined, owner: string) {
     const raw = Number(item.uiTokenAmount?.amount ?? 0), decimals = item.uiTokenAmount?.decimals ?? 6;
     return sum + raw / 10 ** decimals;
   }, 0);
-}
-
-function containsReference(transaction: ParsedTransaction, reference: string) {
-  return (transaction.transaction?.message?.instructions ?? []).some((instruction) =>
-    instruction.program === "spl-memo" && JSON.stringify(instruction.parsed ?? "").includes(reference));
 }
 
 async function rpc(method: string, params: unknown[]) {
@@ -65,6 +61,11 @@ export async function verifyLicensePurchase(invoiceId: string) {
   if (new Date(invoice.due_at).getTime() < Date.now()) redirect(`/billing?invoice=${invoice.id}&error=${encodeURIComponent("A cobrança expirou. Gere uma nova cobrança.")}`);
 
   try {
+    // O endereço de depósito é exclusivo desta fatura (derivado sob demanda —
+    // ver lib/solana-wallet.ts), então qualquer USDT recebido nele já
+    // identifica o cliente por si só, sem depender de memo. Isso cobre
+    // inclusive saques diretos de exchange, que não deixam anexar memo/tag
+    // num saque de Solana.
     const tokenAccounts = await rpc("getTokenAccountsByOwner", [invoice.wallet_address, { mint: SOLANA_USDT_MINT }, { encoding: "jsonParsed" }]);
     const addresses = (tokenAccounts?.value ?? []).map((entry: { pubkey: string }) => entry.pubkey);
     const signatures = (await Promise.all(addresses.map(async (address: string) => rpc("getSignaturesForAddress", [address, { limit: 60 }])))).flat();
@@ -79,20 +80,24 @@ export async function verifyLicensePurchase(invoiceId: string) {
     }
 
     const expected = Number(invoice.amount_usdt);
-    // Preferência 1: carteiras compatíveis com Solana Pay incluem o memo com a
-    // referência da fatura — mais forte, tolera arredondamento pra cima.
-    let match = candidates.find((c) => containsReference(c.transaction, invoice.reference) && c.received + 0.000001 >= expected) ?? null;
-    // Preferência 2: sem memo (ex.: saque direto de uma exchange, que não deixa
-    // anexar memo/tag num saque de Solana) — casa pelo valor exato da cobrança,
-    // já que cada cobrança pede uma fração de centavo diferente das outras
-    // (ver withUniqueAmountTail), então o valor sozinho já identifica o cliente.
-    if (!match) match = candidates.find((c) => Math.abs(c.received - expected) <= 0.0000005) ?? null;
+    const match = candidates.find((c) => c.received + 0.000001 >= expected) ?? null;
     if (!match) throw new Error("Pagamento ainda não localizado. Confira se enviou o valor exato (com as casas decimais) e tente novamente em alguns minutos.");
 
     const service = createServiceClient();
     const paidAt = new Date(), expiresAt = new Date(paidAt.getTime() + 30 * 86400_000);
     const { error: invoiceError } = await service.from("invoices").update({ status: "paid", paid_at: paidAt.toISOString(), transaction_signature: match.signature }).eq("id", invoice.id).eq("status", "pending");
     if (invoiceError) throw invoiceError;
+
+    // Varre o valor recebido no endereço da fatura para a carteira de
+    // tesouraria. Não bloqueia a confirmação do pagamento se falhar (ex.:
+    // RPC instável) — o saldo fica seguro no endereço derivado até a próxima
+    // tentativa, já que a chave privada é recalculável a qualquer momento.
+    try {
+      const swept = await sweepInvoiceFunds(invoice.reference);
+      if (swept) await service.from("invoices").update({ swept_at: new Date().toISOString(), sweep_signature: swept.signature }).eq("id", invoice.id);
+    } catch (sweepError) {
+      console.error("Falha ao varrer fundos da fatura", invoice.id, sweepError);
+    }
     const { error: batchError } = await service.from("license_batches").update({ status: "active", starts_at: paidAt.toISOString(), expires_at: expiresAt.toISOString() }).eq("invoice_id", invoice.id).eq("status", "pending");
     if (batchError) throw batchError;
     const { data: activeBatches } = await service.from("license_batches").select("quantity, expires_at").eq("organization_id", organizationId).eq("status", "active").gt("expires_at", paidAt.toISOString());

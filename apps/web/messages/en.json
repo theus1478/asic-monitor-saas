@@ -166,7 +166,7 @@
     "generateCharge": "Generate charge",
     "flatPrice": "US$ 1.00 per machine, every month",
     "chargeGeneratedEyebrow": "CHARGE GENERATED",
-    "sendExactAmount": "Send exactly this amount, including every decimal — works even sending straight from an exchange, no memo needed.",
+    "sendExactAmount": "This address is exclusive to this charge. Send the exact amount, including every decimal — works even sending straight from an exchange, no memo needed.",
     "copyAmount": "Copy exact amount",
     "awaitingConfirmation": "Awaiting confirmation",
     "chargeValidity": "Charge validity",

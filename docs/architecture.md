@@ -115,24 +115,49 @@ reusar esse componente, não o padrão `data-sitekey`.
 
 ## Pagamentos em USDT
 
-O SaaS não dependerá de uma exchange para receber pagamentos. Em vez disso, terá
-uma carteira de recebimento própria e monitorará os pagamentos diretamente na
-blockchain. A rede aceita será **Solana**, e a página de fatura deixará essa rede
-explícita para impedir depósitos por uma rede incorreta.
+O SaaS não depende de uma exchange para receber pagamentos: monitora os
+pagamentos diretamente na blockchain, na rede **Solana**. Cada fatura recebe um
+**endereço de depósito exclusivo**, não uma carteira compartilhada — é isso que
+permite identificar quem pagou mesmo quando o pagamento vem sem memo/tag, como
+um saque direto de exchange (Binance etc. não deixam anexar memo num saque de
+Solana).
 
-1. No início de cada ciclo, a API cria uma fatura com o número de máquinas
-   licenciadas, desconto aplicado, total em USDT e data de vencimento.
-2. O painel mostra endereço, QR Code, valor exato, rede Solana e status pendente.
-3. O monitor on-chain consulta os eventos de transferência USDT da carteira de
-   recebimento na Solana e exige confirmações mínimas antes de marcar uma fatura como paga.
-4. A confirmação ativa ou renova a licença automaticamente.
-5. O pagamento atrasado aplica período de tolerância e, depois, suspende coleta
+1. Ao gerar uma fatura, `createLicensePurchase` (`app/billing/actions.ts`)
+   deriva um par de chaves Solana exclusivo para aquela fatura e grava só o
+   endereço público (`invoices.wallet_address` / `deposit_address`).
+2. O painel mostra esse endereço, QR Code (Solana Pay URI), valor e status
+   pendente. O QR e o endereço copiável apontam para o endereço da própria
+   fatura, não para uma carteira fixa do sistema.
+3. `verifyLicensePurchase` consulta a rede Solana pelas transferências USDT
+   recebidas *naquele endereço específico*; qualquer valor recebido lá já
+   identifica a fatura, sem depender de memo ou de um valor fracionário único.
+4. Após confirmar, o sistema varre (sweep) o saldo do endereço da fatura para
+   a carteira de tesouraria (`BILLING_WALLET_PUBLIC_KEY`), registrando
+   `invoices.swept_at`/`sweep_signature`. Se a varredura falhar, o pagamento já
+   fica confirmado mesmo assim — o saldo continua seguro no endereço da fatura
+   até a próxima tentativa, já que a chave privada é recalculável a qualquer momento.
+5. A confirmação ativa ou renova a licença automaticamente.
+6. O pagamento atrasado aplica período de tolerância e, depois, suspende coleta
    e acesso até a regularização, sem apagar os dados do cliente.
 
-Cada fatura terá um identificador de pagamento exclusivo. A versão inicial pode
-usar um endereço exclusivo por fatura; depois, quando o volume crescer, um
-serviço de carteira derivada gera endereços por organização sem expor a chave
-privada ao painel nem à API de uso diário.
+### Custódia das chaves (`lib/solana-wallet.ts`)
+
+Nenhuma chave privada de fatura é persistida. `deriveInvoiceKeypair(reference)`
+recalcula o par de chaves sob demanda via HMAC-SHA512 de uma semente mestra
+(`INVOICE_DERIVATION_SEED`, variável de ambiente só no servidor) com a
+referência da fatura como mensagem, truncado a 32 bytes e usado como seed
+Ed25519. A mesma referência sempre deriva o mesmo endereço; referências
+diferentes derivam endereços diferentes — não há como recuperar a chave
+mestra a partir de um endereço derivado.
+
+A varredura (sweep) usa uma segunda carteira, dedicada e de baixo valor — a
+"carteira de combustível" (`FEE_PAYER_SECRET_KEY`) — que só paga a taxa de rede
+da transação de varredura. A carteira de tesouraria (`BILLING_WALLET_PUBLIC_KEY`)
+nunca precisa da própria chave privada no servidor: quem assina a varredura é o
+par derivado da fatura (dono do token account de origem) e a carteira de
+combustível (paga a taxa). Um comprometimento da carteira de combustível não dá
+acesso aos fundos do cliente nem da tesouraria — na pior hipótese, alguém gasta
+o pouco SOL nela depositado para cobrir taxas.
 
 ## Fases
 

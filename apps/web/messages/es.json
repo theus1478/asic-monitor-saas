@@ -166,7 +166,7 @@
     "generateCharge": "Generar cobro",
     "flatPrice": "US$ 1,00 por máquina, cada mes",
     "chargeGeneratedEyebrow": "COBRO GENERADO",
-    "sendExactAmount": "Envía exactamente este monto, con todos los decimales — funciona incluso saliendo directo de un exchange, sin necesitar memo.",
+    "sendExactAmount": "Esta dirección es exclusiva de este cobro. Envía el monto exacto, con todos los decimales — funciona incluso saliendo directo de un exchange, sin necesitar memo.",
     "copyAmount": "Copiar monto exacto",
     "awaitingConfirmation": "Esperando confirmación",
     "chargeValidity": "Vigencia del cobro",
