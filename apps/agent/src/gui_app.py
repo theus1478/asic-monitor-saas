@@ -28,7 +28,7 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner, stop_mining_miner
 
-AGENT_VERSION = "0.9.0"
+AGENT_VERSION = "0.10.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
@@ -391,6 +391,7 @@ class App(tk.Tk):
         self.config_data: dict | None = None
         self.miners: list[dict] = []
         self.metrics_by_ip: dict[str, dict] = {}
+        self.checked_ips: set[str] = set()
         self._build_login()
 
     # ---- login por token ----
@@ -483,11 +484,17 @@ class App(tk.Tk):
         toolbar.pack(fill="x")
         ttk.Button(toolbar, text="+ Adicionar manualmente", command=self._open_add_manual).pack(side="left", padx=(0, 8), pady=8)
         ttk.Button(toolbar, text="⌕ Escanear rede", command=self._open_scan).pack(side="left", padx=(0, 8))
-        ttk.Button(toolbar, text="Remover selecionada", command=self._remove_selected).pack(side="left")
+        ttk.Button(toolbar, text="Remover selecionada", command=self._remove_selected).pack(side="left", padx=(0, 8))
+        ttk.Button(toolbar, text="Remover marcadas", command=self._remove_checked).pack(side="left", padx=(0, 8))
+        ttk.Button(toolbar, text="Remover todas", command=self._remove_all).pack(side="left")
 
-        columns = ("ip", "port", "type", "license", "status", "hashrate", "power")
+        # Coluna "sel" e uma caixinha de marcar clicavel (☐/☑) pra selecionar
+        # varias maquinas de uma vez, independente da selecao de linha nativa
+        # do Treeview (usada por "Remover selecionada") - ver _on_tree_click.
+        columns = ("sel", "ip", "port", "type", "license", "status", "hashrate", "power")
         self.tree = ttk.Treeview(self, columns=columns, show="tree headings", height=16)
         self.tree.heading("#0", text="Nome")
+        self.tree.heading("sel", text="✓")
         self.tree.heading("ip", text="IP")
         self.tree.heading("port", text="Porta")
         self.tree.heading("type", text="Fabricante")
@@ -495,8 +502,9 @@ class App(tk.Tk):
         self.tree.heading("status", text="Status")
         self.tree.heading("hashrate", text="TH/s")
         self.tree.heading("power", text="Consumo (W)")
-        for col, width in (("#0", 150), ("ip", 120), ("port", 60), ("type", 90), ("license", 90), ("status", 80), ("hashrate", 80), ("power", 100)):
-            self.tree.column(col, width=width, anchor="w" if col in ("#0", "ip", "type") else "center")
+        for col, width in (("#0", 140), ("sel", 32), ("ip", 120), ("port", 60), ("type", 90), ("license", 90), ("status", 80), ("hashrate", 80), ("power", 100)):
+            self.tree.column(col, width=width, anchor="w" if col == "#0" or col == "ip" or col == "type" else "center")
+        self.tree.bind("<Button-1>", self._on_tree_click)
         self.tree.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
         self._render_tree()
@@ -736,6 +744,45 @@ class App(tk.Tk):
 
         self._request("DELETE", "config", {"ip": ip}, done)
 
+    def _remove_checked(self) -> None:
+        if not self.checked_ips:
+            messagebox.showinfo("Remover marcadas", "Marque a caixinha de ao menos uma máquina na lista primeiro.")
+            return
+        ips = sorted(self.checked_ips)
+        if not messagebox.askyesno("Remover marcadas", f"Remover {len(ips)} máquina(s) marcada(s) do monitoramento?"):
+            return
+
+        def done(ok: bool, result):
+            if ok:
+                self.checked_ips.clear()
+                self._apply_config_response(result)
+                messagebox.showinfo("Remover marcadas", f"{len(ips)} máquina(s) removida(s).")
+            else:
+                messagebox.showerror("Remover marcadas", str(result))
+
+        self._request("DELETE", "config", {"ips": ips}, done)
+
+    def _remove_all(self) -> None:
+        if not self.miners:
+            messagebox.showinfo("Remover todas", "Não há máquinas cadastradas.")
+            return
+        if not messagebox.askyesno(
+            "Remover todas",
+            f"Remover todas as {len(self.miners)} máquina(s) cadastradas nesta fazenda? Essa ação não pode ser desfeita.",
+        ):
+            return
+        ips = [miner["ip"] for miner in self.miners if miner.get("ip")]
+
+        def done(ok: bool, result):
+            if ok:
+                self.checked_ips.clear()
+                self._apply_config_response(result)
+                messagebox.showinfo("Remover todas", "Todas as máquinas foram removidas.")
+            else:
+                messagebox.showerror("Remover todas", str(result))
+
+        self._request("DELETE", "config", {"ips": ips}, done)
+
     # ---- eventos vindos da thread do coletor ----
 
     def _drain_events(self) -> None:
@@ -764,26 +811,52 @@ class App(tk.Tk):
         selection = self.tree.selection()
         if selection:
             selected_ip = self.tree.set(selection[0], "ip")
+        # maquinas removidas (por outra sessao do coletor, por ex.) nao devem
+        # deixar marcacao fantasma acumulando pra sempre.
+        self.checked_ips &= {miner.get("ip") for miner in self.miners}
         self.tree.delete(*self.tree.get_children())
         restore_id = None
         for miner in self.miners:
             licensed = miner.get("licensed", True)
-            metric = self.metrics_by_ip.get(miner.get("ip"), {})
+            ip = miner.get("ip")
+            metric = self.metrics_by_ip.get(ip, {})
             online = metric.get("online")
             status_text = "online" if online else ("offline" if metric else "—")
             hashrate = metric.get("hashrate_ths")
             power = metric.get("power_w")
-            item_id = self.tree.insert("", "end", text=miner.get("name", miner.get("ip")), values=(
-                miner.get("ip"), miner.get("port"), miner.get("type"),
+            item_id = self.tree.insert("", "end", text=miner.get("name", ip), values=(
+                "☑" if ip in self.checked_ips else "☐",
+                ip, miner.get("port"), miner.get("type"),
                 "OK" if licensed else "🔒 pendente",
                 status_text if licensed else "—",
                 f"{hashrate:.2f}" if licensed and isinstance(hashrate, (int, float)) else "—",
                 f"{power:.0f}" if licensed and isinstance(power, (int, float)) else "—",
             ))
-            if miner.get("ip") == selected_ip:
+            if ip == selected_ip:
                 restore_id = item_id
         if restore_id:
             self.tree.selection_set(restore_id)
+
+    def _on_tree_click(self, event) -> None:
+        """Clique na coluna "sel" ("#1", a primeira coluna de dados - "#0" e
+        a coluna nativa da arvore com o nome) alterna a caixinha de marcar,
+        sem mexer na selecao de linha normal do Treeview (usada por
+        "Remover selecionada")."""
+        if self.tree.identify_region(event.x, event.y) != "cell":
+            return
+        if self.tree.identify_column(event.x) != "#1":
+            return
+        item_id = self.tree.identify_row(event.y)
+        if not item_id:
+            return
+        ip = self.tree.set(item_id, "ip")
+        if not ip:
+            return
+        if ip in self.checked_ips:
+            self.checked_ips.discard(ip)
+        else:
+            self.checked_ips.add(ip)
+        self.tree.set(item_id, "sel", "☑" if ip in self.checked_ips else "☐")
 
 
 def main() -> None:

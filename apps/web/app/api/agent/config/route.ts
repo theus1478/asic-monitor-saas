@@ -89,17 +89,25 @@ export async function POST(request: Request) {
   return Response.json(await buildConfigResponse(auth.service, auth.farm));
 }
 
-/** Remove uma máquina cadastrada pelo app local, identificada pelo IP. */
+/**
+ * Remove uma ou mais máquinas cadastradas pelo app local, identificadas pelo
+ * IP. Aceita "ip" (uma máquina, compatível com versões antigas do coletor)
+ * ou "ips" (lista, usada pelo "Remover marcadas"/"Remover todas" do app).
+ */
 export async function DELETE(request: Request) {
   let auth;
   try { auth = await authenticate(request); } catch { return Response.json({ error: "Supabase não configurado no servidor." }, { status: 503 }); }
   if (!auth) return Response.json({ error: "Token inválido." }, { status: 401 });
 
-  const body = await request.json().catch(() => null) as { ip?: unknown } | null;
-  const ip = typeof body?.ip === "string" ? body.ip.trim() : "";
-  if (!ip) return Response.json({ error: "IP não informado." }, { status: 400 });
+  const body = await request.json().catch(() => null) as { ip?: unknown; ips?: unknown } | null;
+  const ips = Array.isArray(body?.ips)
+    ? body.ips.filter((value): value is string => typeof value === "string" && value.trim().length > 0).map((value) => value.trim())
+    : typeof body?.ip === "string" && body.ip.trim()
+      ? [body.ip.trim()]
+      : [];
+  if (!ips.length) return Response.json({ error: "Nenhum IP informado." }, { status: 400 });
 
-  const { error } = await auth.service.from("miners").delete().eq("farm_id", auth.farm.id).eq("ip", ip);
+  const { error } = await auth.service.from("miners").delete().eq("farm_id", auth.farm.id).in("ip", ips);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json(await buildConfigResponse(auth.service, auth.farm));
 }
