@@ -66,7 +66,17 @@
     "signupReceived": "Регистрация получена. Проверьте почту, чтобы активировать аккаунт.",
     "emailAlreadyRegistered": "Эта почта уже зарегистрирована. Попробуйте войти в аккаунт.",
     "referralCode": "Реферальный код (необязательно)",
-    "referralCodePlaceholder": "Напр.: AB12CD3"
+    "referralCodePlaceholder": "Напр.: AB12CD3",
+    "verifyEmailKicker": "ПОДТВЕРЖДЕНИЕ E-MAIL",
+    "verifyEmailTitle": "Подтвердите свой e-mail",
+    "verifyEmailBody": "Мы отправили 6-значный код на {email}",
+    "confirmEmailButton": "Подтвердить e-mail",
+    "confirmingEmail": "Подтверждаем...",
+    "noCodeReceived": "Не получили код?",
+    "resendCode": "Отправить код повторно",
+    "resendCodeIn": "Повторная отправка через {seconds}с",
+    "changeEmailInstead": "Указали неверный e-mail? Зарегистрируйтесь снова",
+    "otpDigitLabel": "Цифра"
   },
   "dashboard": {
     "title": "Обзор",

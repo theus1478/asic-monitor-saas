@@ -10,6 +10,7 @@ import { PasswordActions } from "./password-actions";
 import { StatusActions } from "./status-actions";
 import { RoleForm } from "./role-form";
 import { DeleteActions } from "./delete-actions";
+import { VerificationActions } from "./verification-actions";
 
 const STATUS_LABEL: Record<string, string> = { active: "Ativo", inactive: "Inativo", suspended: "Suspenso", blocked: "Bloqueado" };
 const STATUS_BADGE: Record<string, string> = { active: "success", inactive: "neutral", suspended: "warning", blocked: "danger" };
@@ -45,7 +46,9 @@ export default async function AdminUserDetailPage({ params, searchParams }: Prop
     <div className="inline-form" style={{ marginBottom: 20, gap: 10 }}>
       <span className={`badge ${STATUS_BADGE[user.accountStatus]}`}>{STATUS_LABEL[user.accountStatus]}</span>
       {user.platformRole && <span className="badge neutral">{user.platformRole === "super_admin" ? "Super Admin" : "Admin"}</span>}
-      {!user.emailConfirmed && <span className="badge warning">E-mail não verificado</span>}
+      {user.emailConfirmed
+        ? <span className="badge success">E-mail confirmado em {new Date(user.emailConfirmedAt!).toLocaleString("pt-BR")}</span>
+        : <span className="badge warning">E-mail não verificado</span>}
       {user.bannedUntil && !user.deletedAt && <span className="badge danger">Acesso bloqueado</span>}
       {user.deletedAt && <span className="badge danger">Excluído</span>}
     </div>
@@ -61,7 +64,8 @@ export default async function AdminUserDetailPage({ params, searchParams }: Prop
 
     {tab === "profile" && <div style={{ display: "grid", gap: 20 }}>
       <ProfileTab user={user} />
-      <EmailForm userId={user.id} currentEmail={user.email} currentUsername={user.username} />
+      <EmailForm userId={user.id} currentEmail={user.email} currentUsername={user.username} pendingEmail={user.pendingEmail} />
+      {!user.emailConfirmed && <VerificationActions userId={user.id} email={user.pendingEmail ?? user.email} canMarkConfirmed={canManageRoles} />}
       <PasswordActions userId={user.id} email={user.email} />
       <StatusActions userId={user.id} currentStatus={user.accountStatus} currentReason={user.statusReason} isSelf={isSelf} />
       {canManageRoles && <RoleForm userId={user.id} currentRole={user.platformRole} isSelf={isSelf} />}

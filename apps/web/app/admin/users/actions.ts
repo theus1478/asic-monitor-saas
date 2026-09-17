@@ -7,6 +7,7 @@ import { requirePlatformAdmin } from "../../../lib/org-data";
 import { requireSuperAdmin, assertNotLastSuperAdmin, isSuperAdmin } from "../../../lib/admin/permissions";
 import { createServiceClient } from "../../../lib/supabase/service";
 import { logAdminAction } from "../../../lib/admin/audit";
+import { generateAndSendCode } from "../../../lib/otp";
 
 type ActionResult = { ok: boolean; message: string };
 
@@ -17,6 +18,11 @@ const BAN_FOREVER = "876000h"; // ~100 anos — o GoTrue não aceita "infinite" 
 async function clientIp() {
   const hdrs = await headers();
   return hdrs.get("x-forwarded-for")?.split(",")[0]?.trim() || hdrs.get("x-real-ip") || null;
+}
+
+async function emailInUse(service: ReturnType<typeof createServiceClient>, excludingUserId: string, email: string) {
+  const { data: existing } = await service.auth.admin.listUsers({ perPage: 1000 });
+  return existing.users.some((u) => u.id !== excludingUserId && u.email?.toLowerCase() === email);
 }
 
 export async function updateUserProfile(userId: string, formData: FormData): Promise<ActionResult> {
@@ -55,10 +61,7 @@ export async function changeUserEmail(userId: string, newEmail: string): Promise
   const oldEmail = current.user.email ?? null;
   if (oldEmail === email) return { ok: false, message: "O novo e-mail é igual ao atual." };
 
-  const { data: existing } = await service.auth.admin.listUsers({ perPage: 1000 });
-  if (existing.users.some((u) => u.id !== userId && u.email?.toLowerCase() === email)) {
-    return { ok: false, message: "Este e-mail já está em uso por outra conta." };
-  }
+  if (await emailInUse(service, userId, email)) return { ok: false, message: "Este e-mail já está em uso por outra conta." };
 
   const { error } = await service.auth.admin.updateUserById(userId, { email, email_confirm: true });
   if (error) return { ok: false, message: error.message };
@@ -67,6 +70,69 @@ export async function changeUserEmail(userId: string, newEmail: string): Promise
   revalidatePath(`/admin/users/${userId}`);
   revalidatePath("/admin/users");
   return { ok: true, message: `E-mail alterado para ${email}.` };
+}
+
+/**
+ * Alternativa a changeUserEmail que não confirma na hora: grava o endereço
+ * novo em profiles.pending_email e manda um código de 6 dígitos pra lá.
+ * auth.users.email só muda quando o próprio usuário confirma o código em
+ * /verify-email — assim ele nunca fica sem conseguir logar por causa de um
+ * e-mail digitado errado.
+ */
+export async function requestEmailChangeWithCode(userId: string, newEmail: string): Promise<ActionResult> {
+  const { userId: adminId } = await requirePlatformAdmin();
+  const email = newEmail.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { ok: false, message: "E-mail inválido." };
+
+  const service = createServiceClient();
+  const { data: current } = await service.auth.admin.getUserById(userId);
+  if (!current.user) return { ok: false, message: "Usuário não encontrado." };
+  if (current.user.email?.toLowerCase() === email) return { ok: false, message: "O novo e-mail é igual ao atual." };
+  if (await emailInUse(service, userId, email)) return { ok: false, message: "Este e-mail já está em uso por outra conta." };
+
+  const { error } = await service.from("profiles").update({ pending_email: email }).eq("id", userId);
+  if (error) return { ok: false, message: error.message };
+
+  const sendResult = await generateAndSendCode(service, { userId, email, purpose: "email_change", actorId: adminId });
+  if (!sendResult.ok) return { ok: false, message: sendResult.message };
+
+  await logAdminAction(service, { adminId, targetUserId: userId, action: "email_change_requested", newData: { pending_email: email }, ipAddress: await clientIp() });
+  revalidatePath(`/admin/users/${userId}`);
+  return { ok: true, message: `Código enviado para ${email}. O e-mail só muda depois que o usuário confirmar.` };
+}
+
+/** Confirma o e-mail atual sem código — restrito a super_admin, com auditoria. */
+export async function markEmailConfirmed(userId: string): Promise<ActionResult> {
+  const { userId: adminId } = await requireSuperAdmin();
+  const service = createServiceClient();
+  const { data: current } = await service.auth.admin.getUserById(userId);
+  if (!current.user) return { ok: false, message: "Usuário não encontrado." };
+  if (current.user.email_confirmed_at) return { ok: false, message: "Este e-mail já está confirmado." };
+
+  const { error } = await service.auth.admin.updateUserById(userId, { email_confirm: true });
+  if (error) return { ok: false, message: error.message };
+
+  await logAdminAction(service, { adminId, targetUserId: userId, action: "admin_email_verified", newData: { email: current.user.email }, ipAddress: await clientIp() });
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
+  return { ok: true, message: "E-mail marcado como confirmado." };
+}
+
+export async function resendVerificationCode(userId: string): Promise<ActionResult> {
+  const { userId: adminId } = await requirePlatformAdmin();
+  const service = createServiceClient();
+  const { data: profile } = await service.from("profiles").select("pending_email").eq("id", userId).maybeSingle();
+  if (!profile) return { ok: false, message: "Usuário não encontrado." };
+
+  const { data: current } = await service.auth.admin.getUserById(userId);
+  const purpose = profile.pending_email ? "email_change" as const : "email_verification" as const;
+  const email = profile.pending_email ?? current.user?.email ?? "";
+  if (!email) return { ok: false, message: "Usuário sem e-mail." };
+
+  const result = await generateAndSendCode(service, { userId, email, purpose, actorId: adminId });
+  if (!result.ok) return { ok: false, message: result.message };
+
+  return { ok: true, message: `Código reenviado para ${email}.` };
 }
 
 export async function changeUsername(userId: string, newUsername: string): Promise<ActionResult> {

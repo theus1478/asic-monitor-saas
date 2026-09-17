@@ -6,6 +6,8 @@ export type PlatformUserRow = {
   username: string | null;
   email: string;
   emailConfirmed: boolean;
+  emailConfirmedAt: string | null;
+  pendingEmail: string | null;
   platformRole: "super_admin" | "admin" | null;
   organizationId: string | null;
   organizationName: string | null;
@@ -37,7 +39,7 @@ type Service = ReturnType<typeof createServiceClient>;
 /** Junta profiles + auth.users + memberships/farms/miners num único array em memória — mesmo padrão já usado em admin/page.tsx pro dashboard de organizações. */
 async function loadAllRows(service: Service): Promise<PlatformUserRow[]> {
   const [{ data: profiles }, { data: authList }, { data: memberships }, { data: organizations }, { data: farms }, { data: miners }] = await Promise.all([
-    service.from("profiles").select("id, full_name, username, platform_role, account_status, status_reason, deleted_at, deleted_by"),
+    service.from("profiles").select("id, full_name, username, platform_role, account_status, status_reason, deleted_at, deleted_by, pending_email"),
     service.auth.admin.listUsers({ perPage: 1000 }),
     service.from("memberships").select("organization_id, user_id, role"),
     service.from("organizations").select("id, name"),
@@ -79,6 +81,8 @@ async function loadAllRows(service: Service): Promise<PlatformUserRow[]> {
       username: profile?.username ?? null,
       email: authUser.email ?? "—",
       emailConfirmed: Boolean(authUser.email_confirmed_at),
+      emailConfirmedAt: authUser.email_confirmed_at ?? null,
+      pendingEmail: profile?.pending_email ?? null,
       platformRole: (profile?.platform_role as PlatformUserRow["platformRole"]) ?? null,
       organizationId: primary?.organization_id ?? null,
       organizationName: primary ? orgNameById.get(primary.organization_id) ?? null : null,

@@ -66,7 +66,17 @@
     "signupReceived": "Registro recibido. Revisa tu correo para activar la cuenta.",
     "emailAlreadyRegistered": "Este correo ya está registrado. Intenta iniciar sesión.",
     "referralCode": "Código de referido (opcional)",
-    "referralCodePlaceholder": "Ej: AB12CD3"
+    "referralCodePlaceholder": "Ej: AB12CD3",
+    "verifyEmailKicker": "CONFIRMACIÓN DE E-MAIL",
+    "verifyEmailTitle": "Confirma tu e-mail",
+    "verifyEmailBody": "Enviamos un código de 6 dígitos a {email}",
+    "confirmEmailButton": "Confirmar e-mail",
+    "confirmingEmail": "Confirmando...",
+    "noCodeReceived": "¿No recibiste el código?",
+    "resendCode": "Reenviar código",
+    "resendCodeIn": "Reenviar código en {seconds}s",
+    "changeEmailInstead": "¿Escribiste el e-mail equivocado? Regístrate de nuevo",
+    "otpDigitLabel": "Dígito"
   },
   "dashboard": {
     "title": "Resumen",

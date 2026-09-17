@@ -66,7 +66,17 @@
     "signupReceived": "Sign-up received. Check your email to activate the account.",
     "emailAlreadyRegistered": "This email is already registered. Try signing in instead.",
     "referralCode": "Referral code (optional)",
-    "referralCodePlaceholder": "e.g. AB12CD3"
+    "referralCodePlaceholder": "e.g. AB12CD3",
+    "verifyEmailKicker": "EMAIL CONFIRMATION",
+    "verifyEmailTitle": "Confirm your email",
+    "verifyEmailBody": "We sent a 6-digit code to {email}",
+    "confirmEmailButton": "Confirm email",
+    "confirmingEmail": "Confirming...",
+    "noCodeReceived": "Didn't receive the code?",
+    "resendCode": "Resend code",
+    "resendCodeIn": "Resend code in {seconds}s",
+    "changeEmailInstead": "Typed the wrong email? Sign up again",
+    "otpDigitLabel": "Digit"
   },
   "dashboard": {
     "title": "Overview",

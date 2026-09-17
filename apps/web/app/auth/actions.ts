@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { getTranslations } from "next-intl/server";
 import { createClient } from "../../lib/supabase/server";
+import { createServiceClient } from "../../lib/supabase/service";
+import { generateAndSendCode } from "../../lib/otp";
 
 function value(formData: FormData, field: string) {
   return String(formData.get(field) ?? "").trim();
@@ -44,28 +46,38 @@ export async function signUp(formData: FormData) {
     redirect(`/sign-in?mode=signup&error=${encodeURIComponent(t("confirmNotRobot"))}`);
   }
 
-  const supabase = await createClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { data: { full_name: fullName, referral_code: referralCode || undefined }, emailRedirectTo: `${appUrl}/auth/callback`, captchaToken },
+  const service = createServiceClient();
+
+  // Criado via API administrativa (não o signUp anônimo) pra nascer com
+  // email_confirm: false, sem disparar o e-mail de confirmação nativo do
+  // Supabase — a confirmação inteira passa a ser pelo código de 6 dígitos.
+  const { data: created, error: createError } = await service.auth.admin.createUser({
+    email, password, email_confirm: false,
+    user_metadata: { full_name: fullName, referral_code: referralCode || undefined },
   });
 
-  if (error) redirect(`/sign-in?mode=signup&error=${encodeURIComponent(error.message)}`);
-  // Supabase returns a fake success (no error) for an email that is already registered and
-  // confirmed, to avoid leaking which addresses exist. It signals this with an empty
-  // identities array instead — no email is actually sent in that case.
-  if (data.user && data.user.identities?.length === 0) {
-    redirect(`/sign-in?mode=signup&error=${encodeURIComponent(t("emailAlreadyRegistered"))}`);
+  if (createError) {
+    // "email_exists" é o código do GoTrue pra e-mail duplicado; checa a
+    // mensagem também como reforço, já que o código pode variar por versão.
+    const isDuplicate = createError.code === "email_exists" || createError.message.toLowerCase().includes("already");
+    const message = isDuplicate ? t("emailAlreadyRegistered") : createError.message;
+    redirect(`/sign-in?mode=signup&error=${encodeURIComponent(message)}`);
   }
+
+  const supabase = await createClient();
+  const { error: signInError } = await supabase.auth.signInWithPassword({ email, password, options: { captchaToken } });
+  if (signInError) {
+    // O captcha (e qualquer outra verificação do signInWithPassword) só é
+    // checado aqui, já que a criação em si usa a API administrativa, que não
+    // recebe captchaToken — sem sessão válida, a conta criada é inútil e é
+    // desfeita pra não deixar um registro órfão sem verificação alguma.
+    await service.auth.admin.deleteUser(created.user.id);
+    redirect(`/sign-in?mode=signup&error=${encodeURIComponent(t("confirmNotRobot"))}`);
+  }
+
+  await generateAndSendCode(service, { userId: created.user.id, email, purpose: "email_verification" });
   (await cookies()).delete("ref_code");
-  // Com a confirmação de e-mail desativada no projeto Supabase, signUp() já
-  // devolve uma sessão válida — entra direto, sem pedir pra checar o e-mail.
-  // Se a confirmação for reativada no futuro, data.session volta null aqui e
-  // cai de volta no fluxo antigo, sem precisar mudar este código de novo.
-  if (data.session) redirect("/dashboard");
-  redirect(`/sign-in?message=${encodeURIComponent(t("signupReceived"))}`);
+  redirect("/verify-email");
 }
 
 export async function signOut() {

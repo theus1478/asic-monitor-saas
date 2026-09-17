@@ -66,7 +66,17 @@
     "signupReceived": "Rejestracja przyjęta. Sprawdź e-mail, aby aktywować konto.",
     "emailAlreadyRegistered": "Ten e-mail jest już zarejestrowany. Spróbuj się zalogować.",
     "referralCode": "Kod polecający (opcjonalnie)",
-    "referralCodePlaceholder": "Np. AB12CD3"
+    "referralCodePlaceholder": "Np. AB12CD3",
+    "verifyEmailKicker": "POTWIERDZENIE E-MAILA",
+    "verifyEmailTitle": "Potwierdź swój e-mail",
+    "verifyEmailBody": "Wysłaliśmy 6-cyfrowy kod na {email}",
+    "confirmEmailButton": "Potwierdź e-mail",
+    "confirmingEmail": "Potwierdzanie...",
+    "noCodeReceived": "Nie otrzymałeś kodu?",
+    "resendCode": "Wyślij kod ponownie",
+    "resendCodeIn": "Wyślij kod ponownie za {seconds}s",
+    "changeEmailInstead": "Wpisałeś błędny e-mail? Zarejestruj się ponownie",
+    "otpDigitLabel": "Cyfra"
   },
   "dashboard": {
     "title": "Przegląd",

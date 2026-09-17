@@ -50,5 +50,13 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
+  // E-mail ainda não confirmado (código de 6 dígitos) — força a tela de
+  // verificação antes de liberar qualquer outra página logada. Fica no
+  // middleware, não só num layout, pra não dar pra contornar trocando a URL.
+  const exemptFromVerification = pathname === "/verify-email" || pathname.startsWith("/auth") || pathname === "/sign-in";
+  if (user && !exemptFromVerification && !user.email_confirmed_at) {
+    return NextResponse.redirect(new URL("/verify-email", request.url));
+  }
+
   return response;
 }

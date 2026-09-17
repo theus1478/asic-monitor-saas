@@ -158,7 +158,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
               <td>{r.deletedAt ? <span className="badge danger">Excluído</span> : <span className={`badge ${STATUS_BADGE[r.accountStatus]}`}>{STATUS_LABEL[r.accountStatus]}</span>}</td>
               <td>{fmtDate(r.createdAt)}</td>
               <td>{fmtDate(r.lastSignInAt)}</td>
-              <td>{r.emailConfirmed ? "✓" : "—"}</td>
+              <td>{r.emailConfirmed ? <span title={new Date(r.emailConfirmedAt!).toLocaleString("pt-BR")}>✓</span> : "—"}</td>
               <td>{r.mfaEnabled ? "✓" : "—"}</td>
             </tr>)}</tbody>
           </table></div>}
