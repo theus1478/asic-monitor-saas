@@ -283,6 +283,138 @@ def _apply_pool_socket(rec, pools_resp):
         rec["worker"] = chosen.get("User")
 
 
+# =================== WHATSMINER: PAINEL LUCI (firmware original, sem API no socket 4028) ===================
+#
+# Algumas versoes do firmware original da Whatsminer (BTMiner) desativam por
+# padrao a API classica do socket 4028 (a mesma familia cgminer que Avalon e
+# BixBit usam) - a conexao ate abre, mas fecha sem responder ao comando. Nessas
+# maquinas o unico jeito de monitorar e a propria pagina HTML do painel local
+# (LuCI, framework do OpenWrt), que a Whatsminer usa em
+# /cgi-bin/luci/admin/status/btminerstatus. NAO e uma API documentada - o
+# layout foi obtido de uma captura real do painel (ver apps/agent/README.md),
+# pode variar entre versoes de firmware.
+
+_LUCI_FIELDSET_RE = re.compile(r'<fieldset class="cbi-section"[^>]*>(.*?)</fieldset>', re.DOTALL)
+_LUCI_LEGEND_RE = re.compile(r"<legend>([^<]*)</legend>")
+_LUCI_FIELD_RE = re.compile(r'id="cbid\.table\.(\d+)\.(\w+)"\s+value="([^"]*)"')
+
+
+def _luci_unescape(value):
+    return value.replace("&#39;", "'").replace("&quot;", '"').replace("&amp;", "&")
+
+
+def _luci_parse_sections(html):
+    """{nome_da_secao: [linha1_dict, linha2_dict, ...]}. Secoes sem <legend>
+    (ex.: a tabela de temperatura por placa) viram "_unnamed_{indice}" - o
+    layout dessa pagina segue sempre a mesma ordem de fieldsets."""
+    sections = {}
+    for index, block in enumerate(_LUCI_FIELDSET_RE.findall(html)):
+        legend = _LUCI_LEGEND_RE.search(block)
+        name = legend.group(1).strip() if legend else f"_unnamed_{index}"
+        rows = {}
+        for row_id, field, value in _LUCI_FIELD_RE.findall(block):
+            rows.setdefault(row_id, {})[field] = _luci_unescape(value)
+        sections[name] = list(rows.values())
+    return sections
+
+
+def _luci_num(value):
+    if value is None:
+        return None
+    return _f(str(value).replace(",", ""))
+
+
+def _luci_elapsed_seconds(text):
+    """'2m 36s' / '1h 5m 12s' / '3d 2h' -> segundos."""
+    if not text:
+        return 0
+    total = 0
+    for amount, unit in re.findall(r"(\d+)\s*([dhms])", str(text)):
+        total += int(amount) * {"d": 86400, "h": 3600, "m": 60, "s": 1}[unit]
+    return total
+
+
+async def _luci_login(ip, username, password):
+    """Login no LuCI - devolve o cookie de sessao (sysauth) ou None se falhar.
+    NAO CONFIRMADO contra hardware real (nomes de campo do formulario e do
+    cookie sao os padroes do LuCI/OpenWrt, mas essa build pode customizar)."""
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, follow_redirects=False) as client:
+        response = await client.post(f"http://{ip}/cgi-bin/luci/", data={"luci_username": username, "luci_password": password})
+        for name, value in response.cookies.items():
+            if name.startswith("sysauth"):
+                return name, value
+    return None
+
+
+async def _luci_fetch_status(ip):
+    """Tenta logar com as credenciais padrao (admin/admin, depois root/root -
+    mesmo padrao ja usado nos comandos de troca de pool/reboot) e buscar a
+    pagina de status. Devolve None se nada funcionar, sem levantar excecao -
+    quem chama decide o que fazer (cair pra offline, por ex.)."""
+    for username, password in (("admin", "admin"), ("root", "root")):
+        try:
+            session = await _luci_login(ip, username, password)
+            if not session:
+                continue
+            cookie_name, cookie_value = session
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT, cookies={cookie_name: cookie_value}) as client:
+                response = await client.get(f"http://{ip}/cgi-bin/luci/admin/status/btminerstatus")
+                if response.status_code == 200 and "cbi-table" in response.text:
+                    return response.text
+        except Exception:
+            continue
+    return None
+
+
+def parse_whatsminer_luci(name, ip, port, html):
+    rec = _base_record(name, ip, port, "whatsminer")
+    sections = _luci_parse_sections(html)
+
+    summary_rows = sections.get("Summary") or []
+    s = summary_rows[0] if summary_rows else {}
+    rec["hashrate_avg_ths"] = _luci_num(s.get("thsav"))
+    rec["hashrate_ths"] = rec["hashrate_avg_ths"]
+    rec["uptime_s"] = _luci_elapsed_seconds(s.get("elapsed"))
+    rec["accepted"] = int(_luci_num(s.get("accepted")) or 0)
+    rec["rejected"] = int(_luci_num(s.get("rejected")) or 0)
+    power = _luci_num(s.get("power"))
+    if power and power > 0:
+        rec["power_w"] = round(power, 1)
+        rec["power_estimated"] = False
+    if str(s.get("liquid_cool", "")).lower() == "true":
+        rec["cooling_mode"] = "immersion"
+        rec["cooling_inferred"] = False
+
+    device_rows = [r for r in (sections.get("Devices") or []) if str(r.get("name", "")).upper() != "TOTAL"]
+    temp_by_board = {r.get("name"): r for r in (sections.get("_unnamed_2") or [])}
+    boards, temps = [], []
+    for dv in device_rows:
+        board_name = dv.get("name", "")
+        chip_temp = _luci_num(temp_by_board.get(board_name, {}).get("temp"))
+        if chip_temp:
+            temps.append(chip_temp)
+        boards.append({"name": board_name, "chip_temp_c": chip_temp, "pcb_temp_c": None, "hashrate_ths": _luci_num(dv.get("thsav"))})
+    rec["boards"] = boards
+    if temps:
+        rec["temp_c"] = round(max(temps), 1)
+
+    pool_rows = sections.get("Pools") or []
+    chosen = next((p for p in pool_rows if str(p.get("stratumactive", "")).lower() == "true" and str(p.get("status", "")).lower() == "alive"), None)
+    if not chosen and pool_rows:
+        chosen = pool_rows[0]
+    if chosen:
+        rec["pool"] = chosen.get("url")
+        rec["worker"] = chosen.get("user")
+
+    if not rec.get("power_w"):
+        w, est = _estimate_power(rec.get("model"), rec.get("hashrate_avg_ths") or rec.get("hashrate_ths"))
+        if w:
+            rec["power_w"] = w
+            rec["power_estimated"] = est
+
+    return _finalize(rec)
+
+
 # =================== PARSERS ===================
 
 def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None, version_resp=None):
@@ -904,21 +1036,33 @@ async def poll_miner(miner):
             return parse_antminer_stock(name, ip, port, summary, stats, pools)
 
         if mtype == "whatsminer":
-            summary = await api_call(ip, port, "summary")
-            pools, devs, version = {}, {}, {}
             try:
-                pools = await api_call(ip, port, "pools")
+                summary = await api_call(ip, port, "summary")
+                pools, devs, version = {}, {}, {}
+                try:
+                    pools = await api_call(ip, port, "pools")
+                except Exception:
+                    pass
+                try:
+                    devs = await api_call(ip, port, "devs")
+                except Exception:
+                    pass
+                try:
+                    version = await api_call(ip, port, "version")
+                except Exception:
+                    pass
+                rec = parse_whatsminer(name, ip, port, summary, pools, devs, version)
+                if rec.get("hashrate_ths") or rec.get("hashrate_avg_ths"):
+                    return rec
             except Exception:
                 pass
-            try:
-                devs = await api_call(ip, port, "devs")
-            except Exception:
-                pass
-            try:
-                version = await api_call(ip, port, "version")
-            except Exception:
-                pass
-            return parse_whatsminer(name, ip, port, summary, pools, devs, version)
+            # Socket 4028 nao respondeu ou nao trouxe hashrate - comum em
+            # firmware original mais novo, que desativa essa API por padrao.
+            # Cai pro painel LuCI por HTTP (ver parse_whatsminer_luci acima).
+            html = await _luci_fetch_status(ip)
+            if html:
+                return parse_whatsminer_luci(name, ip, port, html)
+            raise RuntimeError("Sem resposta da API cgminer (porta 4028) nem do painel LuCI (HTTP).")
 
         if mtype == "avalon":
             summary = await api_call(ip, port, "summary")

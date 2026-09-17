@@ -88,11 +88,29 @@ nomeados do BixBit vêm vazios:
   (mesma tabela `EFFICIENCY_WTH` que já cobre M30/M31/M32/M50/M60), com
   `power_estimated: true` deixando claro que não é leitura real.
 
-Se depois de instalar essa versão algum campo específico ainda vier errado
-num firmware original, o jeito mais rápido de corrigir é mandar um dump bruto
-da resposta de `summary`/`devs` daquela máquina (dá pra pegar com `nc <ip>
-4028` mandando `{"command":"summary"}`) — sem isso, qualquer ajuste a mais
-seria chute.
+### Whatsminer sem API nenhuma no socket 4028: painel LuCI por HTTP
+
+Confirmado contra uma máquina real: algumas versões do firmware original
+(BTMiner) **desativam por padrão** a API do socket 4028 — a conexão TCP abre,
+mas fecha sem responder a nenhum comando (`{"command":"summary"}` inclusive).
+Nessas máquinas o único jeito de monitorar é a própria página HTML do painel
+local, que é um **LuCI** (framework do OpenWrt) em
+`/cgi-bin/luci/admin/status/btminerstatus`.
+
+`parse_whatsminer_luci` (em `miners.py`) faz login (tenta `admin`/`admin` e
+`root`/`root`, mesmo padrão já usado no resto do projeto), busca essa página
+e extrai hashrate, temperatura por placa, consumo real e pool a partir dos
+campos ocultos do formulário (`<input type="hidden" id="cbid.table.N.campo"
+value="...">`). `poll_miner` tenta o socket 4028 primeiro (BixBit continua
+funcionando exatamente como antes) e só cai para o LuCI se o socket não
+trouxer hashrate nenhum. O escaneamento de rede (`gui_app.py`) também
+reconhece esse painel na porta 80, então essas máquinas aparecem certas desde
+o cadastro automático.
+
+Esse layout HTML não é uma API documentada — pode variar entre versões de
+firmware. Se um campo vier errado ou a máquina não for detectada, mandar a
+mesma página (Ctrl+U no navegador, na tela "Miner Status" do painel local) é
+o jeito mais rápido de ajustar.
 
 ## Troca de pool
 

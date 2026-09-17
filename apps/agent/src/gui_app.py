@@ -29,7 +29,7 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner, stop_mining_miner
 
-AGENT_VERSION = "0.8.0"
+AGENT_VERSION = "0.9.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
@@ -121,6 +121,22 @@ def _probe_antminer_http(ip: str, timeout: float = 1.2) -> bool:
         return False
 
 
+def _probe_whatsminer_luci(ip: str, timeout: float = 1.2) -> bool:
+    """Confirma o painel LuCI do firmware original da Whatsminer - usado em
+    maquinas onde a API classica do socket 4028 vem desativada (ver
+    miners.py, secao 'WHATSMINER: PAINEL LUCI')."""
+    try:
+        req = urllib.request.Request(f"http://{ip}/cgi-bin/luci/admin/status/btminerstatus", headers={"Accept": "text/html"})
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            body = response.read(4096).decode("utf-8", errors="ignore")
+        return "btminer" in body.lower() or "whatsminer" in body.lower()
+    except urllib.error.HTTPError as error:
+        # Redirecionado pro login (sem sessao) ainda confirma que o painel existe.
+        return error.code in (302, 401, 403)
+    except Exception:
+        return False
+
+
 def _cgminer_command(ip: str, command: str, timeout: float = 1.2) -> dict | None:
     """Envia um comando ao socket cgminer/bmminer (porta 4028); None se falhar."""
     try:
@@ -197,6 +213,10 @@ def scan_range(start_ip: str, end_ip: str, progress_callback=None) -> list[dict]
             return {"ip": ip, "port": 4028, "type": "antminer", "name": ip}
         if _tcp_open(ip, 4028, timeout=0.3) and _probe_cgminer_family(ip):
             return {"ip": ip, "port": 4028, "type": _classify_cgminer_device(ip), "name": ip}
+        # Whatsminer com a API classica do 4028 desativada (firmware original
+        # mais novo) so aparece pelo painel LuCI, na porta 80.
+        if _tcp_open(ip, 80, timeout=0.3) and _probe_whatsminer_luci(ip):
+            return {"ip": ip, "port": 4028, "type": "whatsminer", "name": ip}
         return None
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=48) as pool:

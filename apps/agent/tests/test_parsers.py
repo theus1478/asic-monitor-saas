@@ -104,6 +104,53 @@ class ParserBoardsAndCoolingTests(unittest.TestCase):
         self.assertEqual(rec["fans_rpm"], [])
         self.assertIsNone(rec["model"])
 
+    def test_whatsminer_luci_parses_summary_devices_temp_and_pool_from_real_panel_layout(self):
+        """Layout obtido de uma captura real do painel LuCI (firmware original
+        sem API no socket 4028) - ver miners.py e README.md."""
+        html = """
+        <fieldset class="cbi-section"><legend>Summary</legend>
+          <input id="cbid.table.1.elapsed" value="2m 36s" />
+          <input id="cbid.table.1.thsav" value="109.000" />
+          <input id="cbid.table.1.accepted" value="17" />
+          <input id="cbid.table.1.rejected" value="0" />
+          <input id="cbid.table.1.liquid_cool" value="true" />
+          <input id="cbid.table.1.power" value="3,504" />
+        </fieldset>
+        <fieldset class="cbi-section"><legend>Devices</legend>
+          <input id="cbid.table.1.name" value="SM0" />
+          <input id="cbid.table.1.thsav" value="37.880" />
+          <input id="cbid.table.2.name" value="SM1" />
+          <input id="cbid.table.2.thsav" value="34.970" />
+          <input id="cbid.table.3.name" value="Total" />
+          <input id="cbid.table.3.thsav" value="109.020" />
+        </fieldset>
+        <fieldset class="cbi-section">
+          <input id="cbid.table.1.name" value="SM0" />
+          <input id="cbid.table.1.temp" value="59.44" />
+          <input id="cbid.table.2.name" value="SM1" />
+          <input id="cbid.table.2.temp" value="58.94" />
+        </fieldset>
+        <fieldset class="cbi-section"><legend>Pools</legend>
+          <input id="cbid.table.1.url" value="stratum+tcp://pool.example.com:9200" />
+          <input id="cbid.table.1.user" value="worker.1" />
+          <input id="cbid.table.1.status" value="Alive" />
+          <input id="cbid.table.1.stratumactive" value="true" />
+        </fieldset>
+        """
+        rec = miners.parse_whatsminer_luci("WhatsMiner_4467", "192.168.1.144", 4028, html)
+        self.assertEqual(rec["type"], "whatsminer")
+        self.assertAlmostEqual(rec["hashrate_avg_ths"], 109.0)
+        self.assertEqual(rec["uptime_s"], 156)
+        self.assertEqual(rec["accepted"], 17)
+        self.assertEqual(rec["power_w"], 3504.0)
+        self.assertFalse(rec["power_estimated"])
+        self.assertEqual(rec["cooling_mode"], "immersion")
+        self.assertEqual(len(rec["boards"]), 2)
+        self.assertEqual(rec["boards"][0]["chip_temp_c"], 59.44)
+        self.assertEqual(rec["temp_c"], 59.4)
+        self.assertEqual(rec["pool"], "stratum+tcp://pool.example.com:9200")
+        self.assertEqual(rec["worker"], "worker.1")
+
     def test_avalon_parses_per_board_temp_from_mm_string_and_infers_cooling(self):
         mm = "MM ID0[AUC01]Ver[1246-N-90-...]MTavg[62 64 61]MTmax[70 72 69]MGHS[38000 39000 37500]PS[0 0000 1200 0000 0000]Fan1[3200]Fan2[3300]"
         stats = {"STATS": [{"MM ID0": mm}]}
