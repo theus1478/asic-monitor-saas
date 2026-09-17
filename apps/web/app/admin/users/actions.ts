@@ -178,6 +178,70 @@ export async function updatePlatformRole(userId: string, role: "super_admin" | "
   return { ok: true, message: role ? `Promovido a ${role === "super_admin" ? "Super Admin" : "Admin"}.` : "Acesso de admin removido." };
 }
 
+/**
+ * Exclusão de usuário (soft delete) — restrita a super_admin. Não apaga
+ * organizations/farms/miners: eles não têm um caminho de exclusão em
+ * cascata a partir de profiles, então apagar de verdade deixaria registros
+ * órfãos (fazenda/ASICs sem ninguém que consiga acessá-los). Em vez disso,
+ * marca a conta como excluída, revoga o acesso (ban nativo do GoTrue) e some
+ * da lista padrão — os dados ficam intactos e a exclusão é reversível.
+ */
+export async function deleteUser(userId: string, reason: string): Promise<ActionResult> {
+  const { userId: adminId } = await requireSuperAdmin();
+  if (userId === adminId) return { ok: false, message: "Você não pode excluir a própria conta." };
+
+  const service = createServiceClient();
+  const { data: before } = await service.from("profiles").select("full_name, platform_role, deleted_at").eq("id", userId).maybeSingle();
+  if (!before) return { ok: false, message: "Usuário não encontrado." };
+  if (before.deleted_at) return { ok: false, message: "Esta conta já está excluída." };
+
+  if (before.platform_role === "super_admin") {
+    try {
+      await assertNotLastSuperAdmin(service, userId);
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : "Falha ao validar." };
+    }
+  }
+
+  const { error } = await service.from("profiles").update({
+    deleted_at: new Date().toISOString(),
+    deleted_by: adminId,
+  }).eq("id", userId);
+  if (error) return { ok: false, message: error.message };
+
+  const { error: banError } = await service.auth.admin.updateUserById(userId, { ban_duration: BAN_FOREVER });
+  if (banError) return { ok: false, message: banError.message };
+
+  await logAdminAction(service, { adminId, targetUserId: userId, action: "user_delete", oldData: before, reason: reason || null, ipAddress: await clientIp() });
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
+  return { ok: true, message: "Usuário excluído (exclusão reversível — os dados foram mantidos)." };
+}
+
+export async function restoreUser(userId: string): Promise<ActionResult> {
+  const { userId: adminId } = await requireSuperAdmin();
+  const service = createServiceClient();
+
+  const { data: before } = await service.from("profiles").select("deleted_at, account_status").eq("id", userId).maybeSingle();
+  if (!before) return { ok: false, message: "Usuário não encontrado." };
+  if (!before.deleted_at) return { ok: false, message: "Esta conta não está excluída." };
+
+  const { error } = await service.from("profiles").update({ deleted_at: null, deleted_by: null }).eq("id", userId);
+  if (error) return { ok: false, message: error.message };
+
+  // Só libera o login de novo se o status não for suspenso/bloqueado por
+  // outro motivo — restaurar não deve contornar uma suspensão separada.
+  if (before.account_status !== "suspended" && before.account_status !== "blocked") {
+    const { error: banError } = await service.auth.admin.updateUserById(userId, { ban_duration: "none" });
+    if (banError) return { ok: false, message: banError.message };
+  }
+
+  await logAdminAction(service, { adminId, targetUserId: userId, action: "user_restore", oldData: before, ipAddress: await clientIp() });
+  revalidatePath(`/admin/users/${userId}`);
+  revalidatePath("/admin/users");
+  return { ok: true, message: "Conta restaurada." };
+}
+
 export async function createUser(formData: FormData): Promise<void> {
   const { userId: adminId } = await requirePlatformAdmin();
   const service = createServiceClient();

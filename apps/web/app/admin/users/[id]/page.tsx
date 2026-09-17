@@ -9,6 +9,7 @@ import { EmailForm } from "./email-form";
 import { PasswordActions } from "./password-actions";
 import { StatusActions } from "./status-actions";
 import { RoleForm } from "./role-form";
+import { DeleteActions } from "./delete-actions";
 
 const STATUS_LABEL: Record<string, string> = { active: "Ativo", inactive: "Inativo", suspended: "Suspenso", blocked: "Bloqueado" };
 const STATUS_BADGE: Record<string, string> = { active: "success", inactive: "neutral", suspended: "warning", blocked: "danger" };
@@ -45,7 +46,8 @@ export default async function AdminUserDetailPage({ params, searchParams }: Prop
       <span className={`badge ${STATUS_BADGE[user.accountStatus]}`}>{STATUS_LABEL[user.accountStatus]}</span>
       {user.platformRole && <span className="badge neutral">{user.platformRole === "super_admin" ? "Super Admin" : "Admin"}</span>}
       {!user.emailConfirmed && <span className="badge warning">E-mail não verificado</span>}
-      {user.bannedUntil && <span className="badge danger">Acesso bloqueado</span>}
+      {user.bannedUntil && !user.deletedAt && <span className="badge danger">Acesso bloqueado</span>}
+      {user.deletedAt && <span className="badge danger">Excluído</span>}
     </div>
 
     <nav className="tabs">
@@ -63,6 +65,11 @@ export default async function AdminUserDetailPage({ params, searchParams }: Prop
       <PasswordActions userId={user.id} email={user.email} />
       <StatusActions userId={user.id} currentStatus={user.accountStatus} currentReason={user.statusReason} isSelf={isSelf} />
       {canManageRoles && <RoleForm userId={user.id} currentRole={user.platformRole} isSelf={isSelf} />}
+      {canManageRoles && <DeleteActions
+        userId={user.id} fullName={user.fullName} email={user.email}
+        asicsCount={user.asicsCount} farmsCount={user.farmsCount}
+        deletedAt={user.deletedAt} deletedByName={user.deletedByName} isSelf={isSelf}
+      />}
     </div>}
   </Shell>;
 }

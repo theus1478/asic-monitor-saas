@@ -18,6 +18,8 @@ export type PlatformUserRow = {
   lastSignInAt: string | null;
   bannedUntil: string | null;
   mfaEnabled: boolean;
+  deletedAt: string | null;
+  deletedByName: string | null;
 };
 
 export type PlatformUserDetail = PlatformUserRow & {
@@ -35,7 +37,7 @@ type Service = ReturnType<typeof createServiceClient>;
 /** Junta profiles + auth.users + memberships/farms/miners num único array em memória — mesmo padrão já usado em admin/page.tsx pro dashboard de organizações. */
 async function loadAllRows(service: Service): Promise<PlatformUserRow[]> {
   const [{ data: profiles }, { data: authList }, { data: memberships }, { data: organizations }, { data: farms }, { data: miners }] = await Promise.all([
-    service.from("profiles").select("id, full_name, username, platform_role, account_status, status_reason"),
+    service.from("profiles").select("id, full_name, username, platform_role, account_status, status_reason, deleted_at, deleted_by"),
     service.auth.admin.listUsers({ perPage: 1000 }),
     service.from("memberships").select("organization_id, user_id, role"),
     service.from("organizations").select("id, name"),
@@ -89,6 +91,8 @@ async function loadAllRows(service: Service): Promise<PlatformUserRow[]> {
       lastSignInAt: authUser.last_sign_in_at ?? null,
       bannedUntil: authUser.banned_until ?? null,
       mfaEnabled: Boolean(authUser.factors && authUser.factors.length > 0),
+      deletedAt: profile?.deleted_at ?? null,
+      deletedByName: profile?.deleted_by ? profileById.get(profile.deleted_by)?.full_name ?? profile.deleted_by : null,
     } satisfies PlatformUserRow;
   });
 }

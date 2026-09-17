@@ -10,7 +10,7 @@ const STATUS_BADGE: Record<PlatformUserRow["accountStatus"], string> = { active:
 const ROLE_LABEL: Record<string, string> = { super_admin: "Super Admin", admin: "Admin", owner: "Dono", operator: "Operador", viewer: "Visualização" };
 
 type Params = {
-  q?: string; status?: string; role?: string; verified?: string; asics?: string;
+  q?: string; status?: string; role?: string; verified?: string; asics?: string; deleted?: string;
   page?: string; sort?: string; dir?: string;
 };
 type Props = { searchParams: Promise<Params> };
@@ -22,7 +22,10 @@ function fmtDate(iso: string | null) {
 export default async function AdminUsersPage({ searchParams }: Props) {
   await requirePlatformAdmin();
   const params = await searchParams;
-  const rows = await listPlatformUsers();
+  const allRows = await listPlatformUsers();
+  const totalDeleted = allRows.filter((r) => r.deletedAt).length;
+  const showDeleted = params.deleted === "show";
+  const rows = showDeleted ? allRows : allRows.filter((r) => !r.deletedAt);
 
   const total = rows.length;
   const totalActive = rows.filter((r) => r.accountStatus === "active").length;
@@ -77,7 +80,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
   const pageRows = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const buildHref = (next: Partial<Params>) => {
-    const merged = { q: params.q ?? "", status, role, verified, asics, sort, dir, ...next };
+    const merged = { q: params.q ?? "", status, role, verified, asics, deleted: params.deleted ?? "", sort, dir, ...next };
     const qs = new URLSearchParams(Object.fromEntries(Object.entries(merged).filter(([, v]) => v)));
     return `/admin/users${qs.toString() ? `?${qs}` : ""}`;
   };
@@ -95,6 +98,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
       <article className="card"><p className="eyebrow">NOVOS (30 DIAS)</p><div className="metric">{totalNew}</div></article>
       <article className="card"><p className="eyebrow">COM ASIC</p><div className="metric">{totalWithAsics}</div><p className="muted">sem ASIC: {totalWithoutAsics}</p></article>
       <article className="card"><p className="eyebrow">ADMINISTRADORES</p><div className="metric">{totalAdmins}</div></article>
+      <article className="card"><p className="eyebrow">EXCLUÍDOS</p><div className="metric">{totalDeleted}</div></article>
     </section>
 
     <section className="card table-card">
@@ -103,6 +107,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
       <form className="inline-form" style={{ marginBottom: 14 }}>
         <input type="hidden" name="status" value={status} /><input type="hidden" name="role" value={role} />
         <input type="hidden" name="verified" value={verified} /><input type="hidden" name="asics" value={asics} />
+        <input type="hidden" name="deleted" value={params.deleted ?? ""} />
         <input name="q" defaultValue={params.q ?? ""} placeholder="Buscar por nome, username, e-mail, ID ou organização..." />
         <button className="button secondary" type="submit">Buscar</button>
       </form>
@@ -125,6 +130,8 @@ export default async function AdminUsersPage({ searchParams }: Props) {
         {pill(buildHref({ asics: "" }), asics === "", "ASICs: todos")}
         {pill(buildHref({ asics: "yes" }), asics === "yes", "Com ASIC")}
         {pill(buildHref({ asics: "no" }), asics === "no", "Sem ASIC")}
+        <span className="muted" style={{ alignSelf: "center", margin: "0 4px" }}>·</span>
+        {pill(buildHref({ deleted: showDeleted ? "" : "show" }), showDeleted, showDeleted ? "Ocultar excluídos" : `Mostrar excluídos (${totalDeleted})`)}
       </div>
 
       {pageRows.length === 0
@@ -148,7 +155,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
               <td>{r.organizationName ?? "—"}</td>
               <td>{r.asicsCount}</td>
               <td>{r.farmsCount}</td>
-              <td><span className={`badge ${STATUS_BADGE[r.accountStatus]}`}>{STATUS_LABEL[r.accountStatus]}</span></td>
+              <td>{r.deletedAt ? <span className="badge danger">Excluído</span> : <span className={`badge ${STATUS_BADGE[r.accountStatus]}`}>{STATUS_LABEL[r.accountStatus]}</span>}</td>
               <td>{fmtDate(r.createdAt)}</td>
               <td>{fmtDate(r.lastSignInAt)}</td>
               <td>{r.emailConfirmed ? "✓" : "—"}</td>
