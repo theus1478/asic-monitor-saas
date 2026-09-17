@@ -199,9 +199,19 @@ def _classify_cgminer_device(ip: str) -> str:
     if summary_list and "Miner Type" in summary_list[0]:
         return "whatsminer"
 
-    # Sobrou: família cgminer confirmada, sem "MM ID" (Avalon) nem "Miner Type"
-    # (Whatsminer/BixBit) -> Antminer com firmware original (bmminer), o que
-    # inclui placas controladoras AML, Xil e BB - todas falam o mesmo socket.
+    # Firmware original da Whatsminer (BTMiner) nao traz "Miner Type" no
+    # summary - esse campo e um adicional exclusivo do BixBit. Sem ele, o
+    # jeito de confirmar Whatsminer e um comando que so o BTMiner reconhece:
+    # "get_version" (documentado no manual oficial da API, ver miners.py) -
+    # bmminer do Antminer devolve erro/vazio pra esse nome de comando.
+    version = _cgminer_command(ip, "get_version")
+    if isinstance(version, dict) and isinstance(version.get("Msg"), dict) and version["Msg"]:
+        return "whatsminer"
+
+    # Sobrou: família cgminer confirmada, sem "MM ID" (Avalon), "Miner Type"
+    # (BixBit) nem "get_version" (BTMiner original) -> Antminer com firmware
+    # original (bmminer), o que inclui placas controladoras AML, Xil e BB -
+    # todas falam o mesmo socket.
     return "antminer"
 
 
