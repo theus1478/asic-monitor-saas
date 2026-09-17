@@ -60,6 +60,11 @@ export async function signUp(formData: FormData) {
     redirect(`/sign-in?mode=signup&error=${encodeURIComponent(t("emailAlreadyRegistered"))}`);
   }
   (await cookies()).delete("ref_code");
+  // Com a confirmação de e-mail desativada no projeto Supabase, signUp() já
+  // devolve uma sessão válida — entra direto, sem pedir pra checar o e-mail.
+  // Se a confirmação for reativada no futuro, data.session volta null aqui e
+  // cai de volta no fluxo antigo, sem precisar mudar este código de novo.
+  if (data.session) redirect("/dashboard");
   redirect(`/sign-in?message=${encodeURIComponent(t("signupReceived"))}`);
 }
 
