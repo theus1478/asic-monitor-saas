@@ -78,6 +78,29 @@ class ParserBoardsAndCoolingTests(unittest.TestCase):
         rec = miners.parse_whatsminer("M30S++", "192.168.0.4", 4028, summary, {}, {}, version)
         self.assertEqual(rec["model"], "M30S++VE30")
 
+    def test_whatsminer_stock_firmware_uses_documented_edevs_get_version_get_psu_commands(self):
+        """Firmware original (BTMiner) que so responde 'summary' com hashrate
+        (sem PSU/temp/modelo do BixBit, sem 'devs' nem 'version' classicos) -
+        o parser precisa completar via 'edevs'/'get_version'/'get_psu', os
+        comandos documentados no manual oficial da API BTMiner (mesma porta
+        4028, nomes diferentes)."""
+        summary = {"SUMMARY": [{"MHS av": 84983730.62, "Elapsed": 2648, "Accepted": 500, "Rejected": 1}]}
+        edevs = {"DEVS": [
+            {"Slot": 0, "Temperature": 80.0, "MHS av": 10342284.80},
+            {"Slot": 1, "Temperature": 81.5, "MHS av": 10259948.84},
+        ]}
+        get_version = {"Msg": {"api_ver": "2.0.3", "fw_ver": "20220125.13.Rel", "miner_type": "M30S+VE40"}}
+        psu = {"Msg": {"iin": "8718", "vin": "22400", "pin": "3000"}}
+        rec = miners.parse_whatsminer("M30S+", "192.168.1.144", 4028, summary, {}, None, None, edevs, get_version, psu)
+        self.assertEqual(rec["model"], "M30S+VE40")
+        self.assertEqual(len(rec["boards"]), 2)
+        self.assertEqual(rec["boards"][1]["chip_temp_c"], 81.5)
+        self.assertEqual(rec["temp_c"], 81.5)
+        self.assertEqual(rec["power_w"], 3000.0)
+        self.assertFalse(rec["power_estimated"])
+        self.assertEqual(rec["voltage_v"], 224.0)
+        self.assertEqual(rec["current_a"], 8.72)
+
     def test_antminer_stock_parses_generic_bmminer_temp_and_fan_fields(self):
         """Firmware original (sem VNish - placas AML, Xil e BB) fala o socket
         cgminer padrao com nomes de campo do Bitmain, diferentes do Whatsminer."""

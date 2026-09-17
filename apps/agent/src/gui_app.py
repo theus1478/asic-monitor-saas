@@ -19,7 +19,6 @@ import socket
 import sys
 import threading
 import tkinter as tk
-import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -124,15 +123,29 @@ def _probe_antminer_http(ip: str, timeout: float = 1.2) -> bool:
 def _probe_whatsminer_luci(ip: str, timeout: float = 1.2) -> bool:
     """Confirma o painel LuCI do firmware original da Whatsminer - usado em
     maquinas onde a API classica do socket 4028 vem desativada (ver
-    miners.py, secao 'WHATSMINER: PAINEL LUCI')."""
+    miners.py, secao 'WHATSMINER: PAINEL LUCI').
+
+    Faz login de verdade (admin/admin, depois root/root) e busca a pagina de
+    status autenticada, em vez de so olhar o texto da pagina de login sem
+    sessao - o LuCI redireciona pro login em qualquer OpenWrt (roteador
+    comum inclusive), e o urllib segue esse redirecionamento sozinho, entao
+    checar so o corpo da resposta sem logar gerava falso negativo (a pagina
+    de login pode nao ter "btminer"/"whatsminer" em lugar nenhum) e a
+    maquina nunca aparecia no escaneamento automatico."""
     try:
-        req = urllib.request.Request(f"http://{ip}/cgi-bin/luci/admin/status/btminerstatus", headers={"Accept": "text/html"})
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            body = response.read(4096).decode("utf-8", errors="ignore")
-        return "btminer" in body.lower() or "whatsminer" in body.lower()
-    except urllib.error.HTTPError as error:
-        # Redirecionado pro login (sem sessao) ainda confirma que o painel existe.
-        return error.code in (302, 401, 403)
+        with httpx.Client(timeout=timeout, follow_redirects=False) as client:
+            for username, password in (("admin", "admin"), ("root", "root")):
+                try:
+                    login = client.post(f"http://{ip}/cgi-bin/luci/", data={"luci_username": username, "luci_password": password})
+                except Exception:
+                    continue
+                cookie = next((v for k, v in login.cookies.items() if k.startswith("sysauth")), None)
+                if not cookie:
+                    continue
+                status = client.get(f"http://{ip}/cgi-bin/luci/admin/status/btminerstatus", cookies=login.cookies)
+                if status.status_code == 200 and "cbi-table" in status.text:
+                    return True
+        return False
     except Exception:
         return False
 

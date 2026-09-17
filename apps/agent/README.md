@@ -79,14 +79,34 @@ primeiro, campo por campo), o parser cai em fallbacks quando os campos
 nomeados do BixBit vêm vazios:
 
 - **Modelo**: se `Miner Type`/`Model` não vier no `summary`, tenta o comando
-  `version` (`VERSION[0].Type`) — não confirmado em todo firmware.
+  clássico `version` (`VERSION[0].Type`) e depois o comando documentado
+  `get_version` (`Msg.miner_type`, ver abaixo).
 - **Temperatura/fan por placa**: se `Chip Temp Max`/`Temperature`/`Fan Speed
   In`/`Fan Speed Out` não vierem, casa por padrão genérico (`temp1`,
-  `temp2_1`, `fan1`...) nos dados de `devs`, mesma estratégia já usada pro
-  Antminer sem VNish.
-- **Consumo**: sem `Power`/PSU medidos, estima por eficiência W/TH do modelo
-  (mesma tabela `EFFICIENCY_WTH` que já cobre M30/M31/M32/M50/M60), com
-  `power_estimated: true` deixando claro que não é leitura real.
+  `temp2_1`, `fan1`...) nos dados de `devs`/`edevs`, mesma estratégia já
+  usada pro Antminer sem VNish.
+- **Consumo**: sem `Power`/PSU medidos nem `get_psu`, estima por eficiência
+  W/TH do modelo (mesma tabela `EFFICIENCY_WTH` que já cobre
+  M30/M31/M32/M50/M60), com `power_estimated: true` deixando claro que não é
+  leitura real.
+
+### Comandos documentados (`edevs`/`get_version`/`get_psu`) vs. nomes cgminer classicos
+
+O manual oficial da API BTMiner (MicroBT, porta 4028 — mesmo socket que o
+BixBit usa) documenta um jogo de comandos ligeiramente diferente do
+protocolo cgminer clássico que o resto do coletor usa (`devs`, `version`).
+Pra placa/temperatura por hashboard o nome certo é **`edevs`** (não `devs`);
+pro modelo é **`get_version`** (campo `miner_type`, não `version`); e pra
+tensão/corrente/potência reais da fonte existe um comando dedicado,
+**`get_psu`** (`vin` em unidades de 10 mV, `iin` em mA, `pin` já em W) — o
+`summary` sozinho nem sempre traz `Power`/PSU no firmware original, mesmo
+que o manual mostre esses campos no exemplo.
+
+`poll_miner` tenta os dois jogos de comando em paralelo (`devs`+`version`
+clássicos e `edevs`+`get_version`+`get_psu` documentados) e `parse_whatsminer`
+prioriza os documentados quando presentes, sem quebrar o BixBit (que
+responde aos nomes clássicos com campos próprios que os documentados não
+têm, como `PSU Vin0`/`Chip Temp Max` por placa).
 
 ### Whatsminer sem API nenhuma no socket 4028: painel LuCI por HTTP
 
@@ -101,11 +121,17 @@ local, que é um **LuCI** (framework do OpenWrt) em
 `root`/`root`, mesmo padrão já usado no resto do projeto), busca essa página
 e extrai hashrate, temperatura por placa, consumo real e pool a partir dos
 campos ocultos do formulário (`<input type="hidden" id="cbid.table.N.campo"
-value="...">`). `poll_miner` tenta o socket 4028 primeiro (BixBit continua
-funcionando exatamente como antes) e só cai para o LuCI se o socket não
-trouxer hashrate nenhum. O escaneamento de rede (`gui_app.py`) também
-reconhece esse painel na porta 80, então essas máquinas aparecem certas desde
-o cadastro automático.
+value="...">`). `poll_miner` tenta o socket 4028 primeiro (`summary` +
+`edevs`/`get_version`/`get_psu`, ver seção acima) e só cai pro LuCI se faltar
+hashrate, temperatura, consumo real ou pool depois disso — nesse caso os
+dois resultados são combinados, preenchendo só o que faltou.
+
+O escaneamento de rede (`gui_app.py`, `_probe_whatsminer_luci`) faz o mesmo
+login de verdade (não só olha o texto da página sem sessão — o LuCI
+redireciona pra tela de login em qualquer roteador OpenWrt, então checar só
+esse texto sem autenticar dava falso negativo) e confirma pela página de
+status autenticada, então essas máquinas aparecem certas desde o cadastro
+automático, sem precisar adicionar manualmente e marcar o fabricante à mão.
 
 Esse layout HTML não é uma API documentada — pode variar entre versões de
 firmware. Se um campo vier errado ou a máquina não for detectada, mandar a

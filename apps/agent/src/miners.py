@@ -417,12 +417,26 @@ def parse_whatsminer_luci(name, ip, port, html):
 
 # =================== PARSERS ===================
 
-def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None, version_resp=None):
+def _ws_msg_dict(resp):
+    """"get_version"/"get_psu" (API oficial documentada, ver manual BTMiner)
+    devolvem o corpo direto em "Msg" (dict), sem o embrulho de lista do
+    "devs"/"summary" - helper separado de _get_list por causa disso."""
+    m = (resp or {}).get("Msg")
+    return m if isinstance(m, dict) else {}
+
+
+def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None,
+                      version_resp=None, edevs_resp=None, get_version_resp=None, psu_resp=None):
     s = _summary0(summary_resp)
     rec = _base_record(name, ip, port, "whatsminer")
     rec["hashrate_avg_ths"] = _pick_hashrate(
         s, ["MHS av", "GHS av", "THS av", "MHS 15m", "HS RT"])
-    inst_boards = _ws_board_hashrate_sum(devs_resp, ["MHS 5s", "HS RT", "MHS av"])
+    # "edevs" e o comando documentado pela MicroBT pra hashboard (ver manual
+    # oficial da API BTMiner) - "devs" e o nome classico cgminer que o BixBit
+    # tambem atende; tenta os dois, edevs primeiro (mais completo no firmware
+    # original).
+    board_source = edevs_resp if _get_list(edevs_resp or {}, "DEVS") else devs_resp
+    inst_boards = _ws_board_hashrate_sum(board_source, ["MHS 5s", "HS RT", "MHS av"])
     inst_summary = _pick_hashrate(
         s, ["HS RT", "MHS 1m", "MHS 5s", "GHS 5s", "THS 5s", "MHS av", "GHS av"])
     avg = rec["hashrate_avg_ths"]
@@ -435,23 +449,26 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None, v
     rec["rejected"] = int(_f(_first(s, "Rejected"), 0))
     rec["model"] = _first(s, "Miner Type", "Model")
     if not rec["model"]:
-        # Firmware original (BTMiner) as vezes nao traz o modelo no "summary" -
-        # tenta o comando "version" (nao confirmado em todo firmware, so usa
-        # se o coletor conseguiu abrir essa conexao).
+        # "version" (cgminer classico) nao e o comando documentado pela
+        # MicroBT pro modelo - o certo e "get_version" (campo "miner_type",
+        # ver manual oficial). Mantem os dois: "version" cobre firmware que
+        # aceite o nome classico, "get_version" e o documentado.
         v_list = _get_list(version_resp or {}, "VERSION")
         v0 = v_list[0] if v_list else {}
         rec["model"] = _first(v0, "Type", "Miner Type", "Model", "PROD")
+    if not rec["model"]:
+        rec["model"] = _ws_msg_dict(get_version_resp).get("miner_type")
     temps = [t for t in (_f(_first(s, "Chip Temp Max")),
                          _f(_first(s, "Temperature")),
-                         _ws_temp_from_devs(devs_resp)) if t and t > 0]
+                         _ws_temp_from_devs(board_source)) if t and t > 0]
     rec["temp_c"] = round(max(temps), 1) if temps else None
     rec["env_temp_c"] = _f(_first(s, "Env Temp", "Env Temperature"))
-    # temperatura por hashboard (via devs) - nomes de campo padrao primeiro;
-    # se um firmware nao usar "Chip Temp Max"/"Temperature", casa por padrao
+    # temperatura por hashboard - nomes de campo padrao primeiro; se um
+    # firmware nao usar "Chip Temp Max"/"Temperature", casa por padrao
     # generico (temp1, temp2_1...) igual ao fallback do Antminer sem VNish,
     # ja que nao ha um schema unico documentado pra todo firmware Whatsminer.
     boards = []
-    for i, dv in enumerate(_get_list(devs_resp or {}, "DEVS")):
+    for i, dv in enumerate(_get_list(board_source or {}, "DEVS")):
         chip_temp = _f(dv.get("Chip Temp Max"))
         pcb_temp = _f(dv.get("Temperature"))
         if chip_temp is None and pcb_temp is None:
@@ -459,6 +476,11 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None, v
             generic_temps = [t for t in generic_temps if t and t > 0]
             if generic_temps:
                 chip_temp = max(generic_temps)
+        if chip_temp is None:
+            # "edevs" (API oficial) so expoe uma leitura por placa
+            # ("Temperature", temperatura na saida de ar) - sem "Chip Temp
+            # Max" (exclusivo do BixBit), usa essa mesma leitura.
+            chip_temp = pcb_temp
         boards.append({
             "name": f"Placa {dv.get('Slot', dv.get('ASC', i))}",
             "chip_temp_c": chip_temp,
@@ -502,6 +524,26 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None, v
             rec["voltage_v"] = round(vout, 2)
             rec["current_a"] = round(iout, 1)
             rec["volt_source"] = "DC"
+    # "get_psu" e o comando documentado pela MicroBT pra fonte real (ver
+    # manual oficial) - o BixBit ja cobre isso com "PSU Vin0/Iin0" no
+    # "summary" (acima), mas o firmware original so expoe essa leitura por
+    # esse comando separado. "vin" vem em unidades de 10mV e "iin" em mA.
+    psu = _ws_msg_dict(psu_resp)
+    if psu:
+        if not rec.get("power_w"):
+            pin = _f(psu.get("pin"))
+            if pin and pin > 0:
+                rec["power_w"] = round(pin, 1)
+                rec["power_estimated"] = False
+        if rec.get("voltage_v") is None:
+            psu_vin = _f(psu.get("vin"))
+            psu_iin = _f(psu.get("iin"))
+            if psu_vin and psu_vin > 0:
+                rec["voltage_v"] = round(psu_vin / 100, 1)
+            if psu_iin and psu_iin > 0:
+                rec["current_a"] = round(psu_iin / 1000, 2)
+            if rec.get("voltage_v") is not None:
+                rec["volt_source"] = "AC (PSU)"
     pr = _f(_first(s, "Power Rate"))
     if pr and pr > 0:
         rec["efficiency_jth"] = round(pr, 2)
@@ -1036,9 +1078,10 @@ async def poll_miner(miner):
             return parse_antminer_stock(name, ip, port, summary, stats, pools)
 
         if mtype == "whatsminer":
+            rec = None
             try:
                 summary = await api_call(ip, port, "summary")
-                pools, devs, version = {}, {}, {}
+                pools, devs, version, edevs, get_version, psu = {}, {}, {}, {}, {}, {}
                 try:
                     pools = await api_call(ip, port, "pools")
                 except Exception:
@@ -1051,17 +1094,66 @@ async def poll_miner(miner):
                     version = await api_call(ip, port, "version")
                 except Exception:
                     pass
-                rec = parse_whatsminer(name, ip, port, summary, pools, devs, version)
-                if rec.get("hashrate_ths") or rec.get("hashrate_avg_ths"):
-                    return rec
+                # "edevs"/"get_version"/"get_psu" sao os comandos documentados
+                # pela MicroBT no manual oficial da API BTMiner (porta 4028,
+                # mesmo socket) - "devs"/"version" acima sao os nomes cgminer
+                # classicos que o BixBit tambem atende. Tenta os dois jogos de
+                # comando; parse_whatsminer prioriza o oficial quando presente.
+                try:
+                    edevs = await api_call(ip, port, "edevs")
+                except Exception:
+                    pass
+                try:
+                    get_version = await api_call(ip, port, "get_version")
+                except Exception:
+                    pass
+                try:
+                    psu = await api_call(ip, port, "get_psu")
+                except Exception:
+                    pass
+                rec = parse_whatsminer(name, ip, port, summary, pools, devs, version, edevs, get_version, psu)
             except Exception:
-                pass
-            # Socket 4028 nao respondeu ou nao trouxe hashrate - comum em
-            # firmware original mais novo, que desativa essa API por padrao.
-            # Cai pro painel LuCI por HTTP (ver parse_whatsminer_luci acima).
-            html = await _luci_fetch_status(ip)
-            if html:
-                return parse_whatsminer_luci(name, ip, port, html)
+                rec = None
+
+            # Alguns firmwares originais respondem "summary" so com hashrate
+            # (sem os campos de PSU/temperatura/pool do BixBit, e sem "devs"
+            # nem "pools" tambem responderem) - nesse caso rec fica incompleto,
+            # nao vazio, entao nao da pra decidir so pela presenca de hashrate
+            # se ainda vale a pena tentar o painel LuCI. Sempre que faltar
+            # temperatura, consumo real ou pool, busca o LuCI tambem e
+            # completa so o que faltou, sem descartar o que o socket ja
+            # trouxe (hashrate/uptime via socket costumam ser mais recentes).
+            incomplete = (
+                rec is None
+                or not (rec.get("hashrate_ths") or rec.get("hashrate_avg_ths"))
+                or rec.get("temp_c") is None
+                or not rec.get("pool")
+                or rec.get("power_estimated")
+            )
+            if incomplete:
+                html = await _luci_fetch_status(ip)
+                if html:
+                    luci_rec = parse_whatsminer_luci(name, ip, port, html)
+                    if rec is None:
+                        rec = luci_rec
+                    else:
+                        fallback_fields = (
+                            "temp_c", "env_temp_c", "voltage_v", "current_a",
+                            "volt_source", "pool", "worker", "cooling_mode",
+                            "cooling_inferred", "model",
+                        )
+                        for key in fallback_fields:
+                            if rec.get(key) in (None, "") and luci_rec.get(key) not in (None, ""):
+                                rec[key] = luci_rec[key]
+                        if not rec.get("boards") and luci_rec.get("boards"):
+                            rec["boards"] = luci_rec["boards"]
+                        if rec.get("power_estimated") and not luci_rec.get("power_estimated") and luci_rec.get("power_w"):
+                            rec["power_w"] = luci_rec["power_w"]
+                            rec["power_estimated"] = False
+                        rec = _finalize(rec)
+
+            if rec is not None and (rec.get("hashrate_ths") or rec.get("hashrate_avg_ths")):
+                return rec
             raise RuntimeError("Sem resposta da API cgminer (porta 4028) nem do painel LuCI (HTTP).")
 
         if mtype == "avalon":
