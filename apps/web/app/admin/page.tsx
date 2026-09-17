@@ -29,12 +29,31 @@ export default async function AdminPage() {
     .from("organizations")
     .select("id, name, created_at")
     .order("created_at", { ascending: false });
-  const orgList = organizations ?? [];
-  const orgIds = orgList.map((o) => o.id);
+  const allOrgList = organizations ?? [];
+  const allOrgIds = allOrgList.map((o) => o.id);
 
-  const [{ data: farms }, { data: memberships }, { data: usersList }, { data: invoices }, licensedCounts] = await Promise.all([
+  const [{ data: allMemberships }, { data: profiles }] = await Promise.all([
+    allOrgIds.length ? supabase.from("memberships").select("organization_id, user_id, role").in("organization_id", allOrgIds) : Promise.resolve({ data: [] as { organization_id: string; user_id: string; role: string }[] }),
+    supabase.from("profiles").select("id, deleted_at"),
+  ]);
+  const deletedUserIds = new Set((profiles ?? []).filter((p) => p.deleted_at).map((p) => p.id));
+  const membersByOrg = new Map<string, string[]>();
+  for (const m of allMemberships ?? []) {
+    if (!membersByOrg.has(m.organization_id)) membersByOrg.set(m.organization_id, []);
+    membersByOrg.get(m.organization_id)!.push(m.user_id);
+  }
+  // Usuário excluído (soft delete) some da lista de clientes — a organização
+  // em si não é apagada (evita órfãos), mas só continua aparecendo aqui se
+  // tiver algum membro que não esteja excluído.
+  const orgList = allOrgList.filter((org) => {
+    const members = membersByOrg.get(org.id);
+    return !members || members.length === 0 || members.some((userId) => !deletedUserIds.has(userId));
+  });
+  const orgIds = orgList.map((o) => o.id);
+  const memberships = (allMemberships ?? []).filter((m) => orgIds.includes(m.organization_id));
+
+  const [{ data: farms }, { data: usersList }, { data: invoices }, licensedCounts] = await Promise.all([
     orgIds.length ? supabase.from("farms").select("id, organization_id").in("organization_id", orgIds) : Promise.resolve({ data: [] as { id: string; organization_id: string }[] }),
-    orgIds.length ? supabase.from("memberships").select("organization_id, user_id, role").in("organization_id", orgIds) : Promise.resolve({ data: [] as { organization_id: string; user_id: string; role: string }[] }),
     supabase.auth.admin.listUsers({ perPage: 1000 }),
     orgIds.length ? supabase.from("invoices").select("organization_id, status, amount_usdt, created_at, paid_at").in("organization_id", orgIds).order("created_at", { ascending: false }) : Promise.resolve({ data: [] as { organization_id: string; status: string; amount_usdt: number; created_at: string; paid_at: string | null }[] }),
     Promise.all(orgIds.map((id) => getLicensedMachineCount(supabase, id))),
