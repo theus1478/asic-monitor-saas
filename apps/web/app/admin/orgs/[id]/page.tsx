@@ -34,7 +34,7 @@ export default async function AdminOrgPage({ params }: { params: Promise<{ id: s
   ]);
 
   const emailByUserId = new Map((usersList?.users ?? []).map((u) => [u.id, u.email ?? "—"]));
-  const members = (memberships ?? []).map((m) => ({ email: emailByUserId.get(m.user_id) ?? "—", role: m.role }));
+  const members = (memberships ?? []).map((m) => ({ userId: m.user_id, email: emailByUserId.get(m.user_id) ?? "—", role: m.role }));
   const ownerEmail = members.find((m) => m.role === "owner")?.email ?? members[0]?.email ?? null;
 
   const farmList = farms ?? [];
@@ -78,7 +78,7 @@ export default async function AdminOrgPage({ params }: { params: Promise<{ id: s
       <h2>Acesso</h2>
       {members.length === 0
         ? <p className="muted">Nenhum usuário vinculado.</p>
-        : <ul className="agent-list">{members.map((m) => <li key={m.email}>{m.email} <span className="muted">· {m.role}</span></li>)}</ul>}
+        : <ul className="agent-list">{members.map((m) => <li key={m.userId}><Link href={`/admin/users/${m.userId}`}>{m.email}</Link> <span className="muted">· {m.role}</span></li>)}</ul>}
       {ownerEmail && <ResetPasswordButton email={ownerEmail} />}
     </section>
 
