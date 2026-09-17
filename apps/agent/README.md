@@ -63,6 +63,37 @@ máquinas cadastradas naquela fazenda no painel — nome, IP, porta e fabricante
 (`antminer`, `whatsminer` ou `avalon`). O campo `miners` do arquivo local só
 serve como fallback caso a busca na nuvem falhe temporariamente.
 
+## Whatsminer: BixBit vs. firmware original (BTMiner)
+
+`parse_whatsminer` foi escrita originalmente contra firmware BixBit, que
+expõe campos próprios não documentados em nenhum outro lugar (`PSU
+Vin0/Iin0/Vout/Iout` para tensão/corrente real, `Power`/`Power Rate` para
+consumo/eficiência, `Miner Type` para o modelo). O firmware original da
+Whatsminer (BTMiner) nem sempre expõe esses mesmos campos pelo socket cgminer
+de leitura (porta 4028) — o canal cifrado de escrita (portas 4028/4433, ver
+`_set_whatsminer_v2`/`_set_whatsminer_v3`) é uma API completamente separada,
+só usada pra trocar pool.
+
+Pra cobrir os dois sem regredir o que já funciona (BixBit continua tentado
+primeiro, campo por campo), o parser cai em fallbacks quando os campos
+nomeados do BixBit vêm vazios:
+
+- **Modelo**: se `Miner Type`/`Model` não vier no `summary`, tenta o comando
+  `version` (`VERSION[0].Type`) — não confirmado em todo firmware.
+- **Temperatura/fan por placa**: se `Chip Temp Max`/`Temperature`/`Fan Speed
+  In`/`Fan Speed Out` não vierem, casa por padrão genérico (`temp1`,
+  `temp2_1`, `fan1`...) nos dados de `devs`, mesma estratégia já usada pro
+  Antminer sem VNish.
+- **Consumo**: sem `Power`/PSU medidos, estima por eficiência W/TH do modelo
+  (mesma tabela `EFFICIENCY_WTH` que já cobre M30/M31/M32/M50/M60), com
+  `power_estimated: true` deixando claro que não é leitura real.
+
+Se depois de instalar essa versão algum campo específico ainda vier errado
+num firmware original, o jeito mais rápido de corrigir é mandar um dump bruto
+da resposta de `summary`/`devs` daquela máquina (dá pra pegar com `nc <ip>
+4028` mandando `{"command":"summary"}`) — sem isso, qualquer ajuste a mais
+seria chute.
+
 ## Troca de pool
 
 O painel cria um comando cifrado e o associa ao coletor da fazenda. A cada

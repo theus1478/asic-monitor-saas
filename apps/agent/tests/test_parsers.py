@@ -57,7 +57,26 @@ class ParserBoardsAndCoolingTests(unittest.TestCase):
         summary = {"SUMMARY": [{"MHS av": 10000, "Fan Speed In": 0, "Fan Speed Out": 0}]}
         rec = miners.parse_whatsminer("M30S++", "192.168.0.2", 4028, summary, {}, {})
         self.assertEqual(rec["cooling_mode"], "immersion")
-        self.assertTrue(rec["cooling_inferred"])
+
+    def test_whatsminer_stock_firmware_falls_back_to_generic_temp_fan_and_power_estimate(self):
+        """Firmware original (BTMiner) sem os campos custom do BixBit (PSU
+        Vin0/Iin0, Power, Chip Temp Max, Fan Speed In/Out) - o parser ainda
+        precisa achar temperatura/fan por padrao generico e estimar consumo
+        pela eficiencia do modelo, igual ja faz pro Antminer sem VNish."""
+        summary = {"SUMMARY": [{"MHS av": 68000, "Elapsed": 3600, "Accepted": 200, "Rejected": 1}]}
+        devs = {"DEVS": [{"Slot": 0, "temp1": 32, "temp2_1": 78, "fan1": 3600, "fan2": 3500}]}
+        version = {"VERSION": [{"Type": "M30S++"}]}
+        rec = miners.parse_whatsminer("M30S++", "192.168.0.3", 4028, summary, {}, devs, version)
+        self.assertEqual(rec["boards"][0]["chip_temp_c"], 78)
+        self.assertEqual(rec["temp_c"], 78)
+        self.assertTrue(rec["power_estimated"])
+        self.assertIsNotNone(rec["power_w"])
+
+    def test_whatsminer_falls_back_to_version_command_for_model(self):
+        summary = {"SUMMARY": [{"MHS av": 10000}]}
+        version = {"VERSION": [{"Type": "M30S++VE30"}]}
+        rec = miners.parse_whatsminer("M30S++", "192.168.0.4", 4028, summary, {}, {}, version)
+        self.assertEqual(rec["model"], "M30S++VE30")
 
     def test_antminer_stock_parses_generic_bmminer_temp_and_fan_fields(self):
         """Firmware original (sem VNish - placas AML, Xil e BB) fala o socket

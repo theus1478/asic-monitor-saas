@@ -285,7 +285,7 @@ def _apply_pool_socket(rec, pools_resp):
 
 # =================== PARSERS ===================
 
-def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None):
+def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None, version_resp=None):
     s = _summary0(summary_resp)
     rec = _base_record(name, ip, port, "whatsminer")
     rec["hashrate_avg_ths"] = _pick_hashrate(
@@ -302,29 +302,56 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None):
     rec["accepted"] = int(_f(_first(s, "Accepted"), 0))
     rec["rejected"] = int(_f(_first(s, "Rejected"), 0))
     rec["model"] = _first(s, "Miner Type", "Model")
+    if not rec["model"]:
+        # Firmware original (BTMiner) as vezes nao traz o modelo no "summary" -
+        # tenta o comando "version" (nao confirmado em todo firmware, so usa
+        # se o coletor conseguiu abrir essa conexao).
+        v_list = _get_list(version_resp or {}, "VERSION")
+        v0 = v_list[0] if v_list else {}
+        rec["model"] = _first(v0, "Type", "Miner Type", "Model", "PROD")
     temps = [t for t in (_f(_first(s, "Chip Temp Max")),
                          _f(_first(s, "Temperature")),
                          _ws_temp_from_devs(devs_resp)) if t and t > 0]
     rec["temp_c"] = round(max(temps), 1) if temps else None
     rec["env_temp_c"] = _f(_first(s, "Env Temp", "Env Temperature"))
-    # temperatura por hashboard (via devs)
+    # temperatura por hashboard (via devs) - nomes de campo padrao primeiro;
+    # se um firmware nao usar "Chip Temp Max"/"Temperature", casa por padrao
+    # generico (temp1, temp2_1...) igual ao fallback do Antminer sem VNish,
+    # ja que nao ha um schema unico documentado pra todo firmware Whatsminer.
     boards = []
     for i, dv in enumerate(_get_list(devs_resp or {}, "DEVS")):
+        chip_temp = _f(dv.get("Chip Temp Max"))
+        pcb_temp = _f(dv.get("Temperature"))
+        if chip_temp is None and pcb_temp is None:
+            generic_temps = [_f(v) for k, v in dv.items() if _STOCK_TEMP_KEY.match(str(k))]
+            generic_temps = [t for t in generic_temps if t and t > 0]
+            if generic_temps:
+                chip_temp = max(generic_temps)
         boards.append({
             "name": f"Placa {dv.get('Slot', dv.get('ASC', i))}",
-            "chip_temp_c": _f(dv.get("Chip Temp Max")),
-            "pcb_temp_c": _f(dv.get("Temperature")),
+            "chip_temp_c": chip_temp,
+            "pcb_temp_c": pcb_temp,
             "hashrate_ths": _normalize_hashrate(dv.get("MHS av")),
         })
     rec["boards"] = boards
+    if rec["temp_c"] is None:
+        board_temps = [b["chip_temp_c"] for b in boards if b["chip_temp_c"]]
+        if board_temps:
+            rec["temp_c"] = round(max(board_temps), 1)
     fan_in = _f(_first(s, "Fan Speed In"))
     fan_out = _f(_first(s, "Fan Speed Out"))
-    rec["fans_rpm"] = [x for x in (fan_in, fan_out) if x]
-    # BixBit nao expoe um campo de "modo"; inferimos pela rotacao dos fans:
-    # fans girando = ar; fans zerados = imersao. Marcado como inferido.
-    if fan_in is not None or fan_out is not None:
-        active = max(fan_in or 0, fan_out or 0) > 100
-        rec["cooling_mode"] = "air" if active else "immersion"
+    if fan_in is None and fan_out is None:
+        # Alguns firmwares originais numeram como fan1/fan2 em vez de "Fan
+        # Speed In/Out" - mesmo padrao generico usado no fallback do Antminer.
+        rec["fans_rpm"] = [f for k, v in s.items() if _STOCK_FAN_KEY.match(str(k)) and (f := _f(v)) is not None]
+    else:
+        # Filtra por "is not None", nao por valor truthy - 0 RPM e um dado
+        # legitimo (imersao), nao ausencia de leitura.
+        rec["fans_rpm"] = [x for x in (fan_in, fan_out) if x is not None]
+    # Nenhum firmware Whatsminer conhecido expoe um campo de "modo"; inferimos
+    # pela rotacao dos fans: fans girando = ar; fans zerados = imersao.
+    if rec["fans_rpm"]:
+        rec["cooling_mode"] = "air" if max(rec["fans_rpm"]) > 100 else "immersion"
         rec["cooling_inferred"] = True
     p = _f(_first(s, "Power", "Power Realtime"))
     if p and p > 0:
@@ -361,6 +388,15 @@ def parse_whatsminer(name, ip, port, summary_resp, pools_resp, devs_resp=None):
             hr32 = rec.get("hashrate_avg_ths") or rec.get("hashrate_ths")
             if hr32 and hr32 > 0:
                 rec["efficiency_jth"] = round(rec["power_w"] / hr32, 2)
+
+    # Firmware original (BTMiner) normalmente nao expoe PSU/potencia real pelo
+    # socket cgminer (isso e um adicional do BixBit) - sem consumo medido,
+    # cai pra estimativa por eficiencia W/TH, igual ja acontece pro Antminer.
+    if not rec.get("power_w"):
+        w, est = _estimate_power(rec["model"], rec.get("hashrate_avg_ths") or rec.get("hashrate_ths"))
+        if w:
+            rec["power_w"] = w
+            rec["power_estimated"] = est
 
     _apply_pool_socket(rec, pools_resp)
     return _finalize(rec)
@@ -869,7 +905,7 @@ async def poll_miner(miner):
 
         if mtype == "whatsminer":
             summary = await api_call(ip, port, "summary")
-            pools, devs = {}, {}
+            pools, devs, version = {}, {}, {}
             try:
                 pools = await api_call(ip, port, "pools")
             except Exception:
@@ -878,7 +914,11 @@ async def poll_miner(miner):
                 devs = await api_call(ip, port, "devs")
             except Exception:
                 pass
-            return parse_whatsminer(name, ip, port, summary, pools, devs)
+            try:
+                version = await api_call(ip, port, "version")
+            except Exception:
+                pass
+            return parse_whatsminer(name, ip, port, summary, pools, devs, version)
 
         if mtype == "avalon":
             summary = await api_call(ip, port, "summary")
