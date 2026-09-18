@@ -25,6 +25,13 @@ normal da lista), com botões "Remover marcadas" e "Remover todas" — o
 único de antes, então a remoção em massa vira uma chamada só. Exige a versão
 0.10.0 ou posterior do executável.
 
+O ciclo de coleta é blindado contra falhas inesperadas (versão 0.10.1 ou
+posterior): um erro isolado — resposta não-JSON da nuvem, falha numa etapa do
+ciclo — aparece na barra de status e o ciclo segue, e se a thread de coleta cair
+por completo ela é reiniciada em 5 s. Antes disso, uma exceção que não fosse
+`httpx.HTTPError` matava a coleta em silêncio: a janela continuava aberta, mas
+nada era enviado até fechar e abrir o app.
+
 Se registra na pasta *Inicializar* do Windows (`shell:startup`) para abrir
 sozinho, minimizado, a cada login do Windows — combinado com o login
 automático acima, isso significa que o monitoramento volta a rodar sem

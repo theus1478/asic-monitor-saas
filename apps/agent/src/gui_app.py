@@ -28,7 +28,7 @@ import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner, stop_mining_miner
 
-AGENT_VERSION = "0.10.0"
+AGENT_VERSION = "0.10.1"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
@@ -312,7 +312,15 @@ class Collector:
         self.miners = miners
 
     def _run_loop(self) -> None:
-        asyncio.run(self._async_main())
+        # Se o ciclo inteiro cair por qualquer motivo, recomeça em vez de deixar
+        # a thread morrer em silêncio (o app ficava aberto, mas sem enviar nada).
+        while not self._stop.is_set():
+            try:
+                asyncio.run(self._async_main())
+            except Exception as error:
+                self.ui_events.put({"type": "status", "message": f"Coleta reiniciada após erro inesperado: {error!r}"})
+            if not self._stop.wait(5):
+                continue
 
     async def _async_main(self) -> None:
         headers = {"Authorization": f"Bearer {self.config['agent_token']}", "X-Agent-Version": AGENT_VERSION}
@@ -322,9 +330,16 @@ class Collector:
 
         async with httpx.AsyncClient(timeout=15) as client:
             while not self._stop.is_set():
-                await self._sync_miners(client, config_url, headers)
-                await self._process_command(client, commands_url, headers)
-                await self._poll_and_report(client, self.config["api_url"], headers)
+                steps = (
+                    lambda: self._sync_miners(client, config_url, headers),
+                    lambda: self._process_command(client, commands_url, headers),
+                    lambda: self._poll_and_report(client, self.config["api_url"], headers),
+                )
+                for step in steps:
+                    try:
+                        await step()
+                    except Exception as error:  # uma falha isolada não pode derrubar o ciclo de coleta
+                        self.ui_events.put({"type": "status", "message": f"Erro inesperado no ciclo: {error!r}"})
                 for _ in range(interval):
                     if self._stop.is_set():
                         break
