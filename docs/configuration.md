@@ -112,8 +112,10 @@ Pontos de atenção:
 
 - **Faturas simultâneas:** como a carteira é um único endereço, o BitCart não
   distingue invoices de mesmo valor (testado: 3 invoices de US$ 1 saíram com o
-  mesmo endereço e valor). O app resolve dando a cada fatura um valor único —
-  ver "Pagamentos via BitCart" em `docs/architecture.md`.
+  mesmo endereço e valor — também com uma carteira HD, que o BNB do BitCart
+  não deriva por fatura; essa carteira de teste foi apagada com saldo zero).
+  O app cobra o valor exato e só adiciona poeira se houver conflito — ver
+  "Pagamentos via BitCart" em `docs/architecture.md`.
 - **Recriar containers** (`docker compose up --force-recreate`) mantém a rede
   `easypanel` porque ela está no override; sem o `-f compose/override-easypanel.yml`
   a rota Traefik deixa de alcançar o BitCart.

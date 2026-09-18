@@ -10,13 +10,14 @@ import { activateLicenseForInvoice } from "../../lib/billing";
 
 const INVOICE_VALIDITY_MINUTES = 30;
 
-// A carteira do BitCart é um único endereço, então cada fatura em aberto
-// precisa de um valor exato diferente (até +0,000999 USDT) para o pagamento
-// ser atribuído ao cliente certo. Precisa do service client: a RLS esconde as
-// faturas de outras organizações.
+// A carteira do BitCart é um único endereço (testado: mesmo com carteira HD o
+// BNB usa um endereço só), então duas faturas em aberto com o mesmo valor não
+// se distinguem. Cobra o valor exato e só soma poeira (até +0,000999 USDT) se
+// já houver outra fatura pendente e ainda válida com o mesmo valor. Precisa do
+// service client: a RLS esconde as faturas de outras organizações.
 async function pickUniqueAmount(service: ReturnType<typeof createServiceClient>, baseAmount: number) {
   for (let attempt = 0; attempt < 30; attempt++) {
-    const amount = Number((baseAmount + randomInt(1, 1000) / 1_000_000).toFixed(6));
+    const amount = attempt === 0 ? Number(baseAmount.toFixed(6)) : Number((baseAmount + randomInt(1, 1000) / 1_000_000).toFixed(6));
     const { count } = await service.from("invoices").select("id", { count: "exact", head: true }).eq("status", "pending").gt("due_at", new Date().toISOString()).eq("amount_usdt", amount);
     if (!count) return amount;
   }
