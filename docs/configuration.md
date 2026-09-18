@@ -2,41 +2,100 @@
 
 Este documento registra **quais** credenciais o ASIC Monitor SaaS usa e onde configurá-las. Nunca registre valores reais de senhas, tokens, chaves privadas ou seed phrases no GitHub.
 
-## Supabase
+> **2026-09-18: saída da Vercel e do Supabase Cloud.** A aplicação e o banco
+> agora rodam self-hosted numa VPS própria (ver "Infraestrutura self-hosted
+> (VPS)" abaixo). Vercel e o projeto `asicmonitor` no Supabase Cloud
+> continuam existindo, mas **não recebem mais tráfego** desde que o DNS de
+> `monitorasic.club` passou a apontar para a VPS — ficam só como rede de
+> segurança até a operação nova se provar estável, e devem ser
+> desligados/despromovidos depois disso (ver "Descomissionamento" ao final).
 
-Configure em `apps/web/.env.local` para desenvolvimento e em **Vercel → Project Settings → Environment Variables** para produção.
+## Supabase (self-hosted na VPS)
+
+Configure em `apps/web/.env.local` para desenvolvimento e nas **variáveis de
+ambiente do serviço `web` no EasyPanel** (`http://2.25.234.75:3000`, projeto
+`asic-monitor`) para produção — não existe mais painel da Vercel para isso.
 
 | Variável | Uso | Onde obter |
 | --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | URL pública do projeto | Supabase → Project Settings → API |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cliente web com RLS | Supabase → Project Settings → API |
-| `SUPABASE_SERVICE_ROLE_KEY` | Operações administrativas do servidor | Supabase → Project Settings → API; somente Vercel, nunca navegador |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL pública do projeto | `https://db.monitorasic.club` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Cliente web com RLS | Arquivo `/opt/supabase/docker/.env` na VPS (`ANON_KEY`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Operações administrativas do servidor | Mesmo arquivo (`SERVICE_ROLE_KEY`); só no ambiente do serviço `web`, nunca no navegador |
 
-O projeto atual é `asicmonitor` e sua URL é `https://dsycgqvtvaxhfjxmsatw.supabase.co`.
+A pilha Supabase (11 containers: `supabase-db`, `supabase-auth`,
+`supabase-rest`, `supabase-storage`, `supabase-studio`, `supabase-envoy`,
+`supabase-meta`, `supabase-pooler`, `supabase-imgproxy`,
+`supabase-edge-functions`, `realtime-dev.supabase-realtime`, Postgres 17.6)
+roda via `docker compose` em `/opt/supabase/docker` na própria VPS, fora do
+EasyPanel/Docker Swarm — só o `supabase-envoy` foi conectado à rede
+`easypanel` (`docker network connect easypanel supabase-envoy`) para o
+Traefik conseguir alcançá-lo e expor `db.monitorasic.club` com certificado
+Let's Encrypt de verdade (roteador manual em
+`/etc/easypanel/traefik/config/supabase.yaml` — não é gerenciado pela UI do
+EasyPanel, que só entende serviços do próprio projeto).
 
-**Capacidade do banco:** o projeto roda hoje no plano Free, instância
-`t3.nano` (compute compartilhado, sem núcleo dedicado). Em 2026-09-17 essa
-instância foi observada em ~98% de CPU / 85% de memória / 78% de Disk IO
-(Settings → Infrastructure no painel), causando timeouts de conexão em
-consultas simples e lentidão perceptível no login — não é bug de código, é
-teto de capacidade do plano. Upgrade de compute exige plano Pro. Se o site
-estiver lento/instável, checar esse painel antes de investigar o app.
+O antigo projeto `asicmonitor` (Supabase Cloud, plano Free/`t3.nano`, que
+sofria timeouts de conexão sob carga — motivo original da migração) fica
+desligado do fluxo de produção; suas credenciais antigas não devem mais ser
+usadas em nenhum ambiente.
 
 As rotas `/dashboard`, `/farms`, `/billing` e `/admin` exigem uma sessão válida. O cadastro cria automaticamente um registro em `profiles` por meio da migration `0002_auth_profiles.sql`.
 
-## Aplicação Vercel
+## Aplicação (self-hosted na VPS via EasyPanel)
+
+Variáveis configuradas nas **variáveis de ambiente do serviço `web`** no
+EasyPanel (API em `http://2.25.234.75:3000/api/updateAppEnv`, projeto
+`asic-monitor`, serviço `web`) — mudanças em variáveis `NEXT_PUBLIC_*`
+exigem um rebuild completo (`POST /api/deploy/<token>`) para valerem no
+bundle do navegador, já que são embutidas em tempo de build; as demais
+(server-only) só precisam de um restart (`POST /api/restartAppService`).
 
 | Variável | Uso |
 | --- | --- |
-| `NEXT_PUBLIC_APP_URL` | URL canônica do painel após o primeiro deploy |
+| `NEXT_PUBLIC_APP_URL` | URL canônica do painel: `https://monitorasic.club` |
 | `AGENT_TOKEN_PEPPER` | Segredo usado para gerar hashes dos tokens dos agentes |
 | `SOLANA_RPC_URL` | Endpoint RPC para o monitor on-chain validar transferências USDT (ainda não implementado) |
 | `NEXT_PUBLIC_SOLANA_USDT_MINT` | Endereço do mint do USDT na rede Solana. Usado no QR code de pagamento (Solana Pay), por isso é público — não é segredo. |
 | `NEXT_PUBLIC_BILLING_WALLET_PUBLIC_KEY` | Endereço público que recebe USDT. Público por natureza (é para onde o cliente paga), exposto no navegador para montar o QR code da fatura. |
-| `RESEND_API_KEY` | Envio de e-mail transacional (alertas de ocorrência e o código de confirmação de 6 dígitos no cadastro/troca de e-mail) via Resend. Sem ela, ocorrências continuam sendo registradas normalmente (só o e-mail fica `skipped`), mas cadastro/verificação de e-mail não funcionam — é a única credencial nova que virou obrigatória pro fluxo principal de cadastro. |
+| `RESEND_API_KEY` | Envio de e-mail transacional (alertas de ocorrência e o código de confirmação de 6 dígitos no cadastro/troca de e-mail) via Resend. Sem ela, ocorrências continuam sendo registradas normalmente (só o e-mail fica `skipped`), mas cadastro/verificação de e-mail não funcionam. |
 | `ALERT_EMAIL_FROM` | Remetente usado nos e-mails acima. Opcional — sem ela, usa `ASIC Monitor <alerts@resend.dev>`. |
+| `CRON_SECRET` | Protege as rotas `/api/cron/*` contra chamadas externas — exigido pelo `crontab` da própria VPS (ver "Tarefas agendadas" abaixo). Opcional no código, mas configurado em produção. |
+| `HOSTNAME` | **Sempre `0.0.0.0`.** O servidor standalone do Next.js (`output: "standalone"`) escuta no endereço de `process.env.HOSTNAME`, e o Docker define essa variável automaticamente para o ID do container — que só resolve numa das redes do container. Sem essa sobrescrita, o Traefik nunca alcança a aplicação (erro 502) mesmo com o build/deploy "funcionando". |
 
-Use valores diferentes em Development, Preview e Production quando fizer sentido. Os valores sensíveis ficam somente na Vercel.
+Não existe mais "Development/Preview/Production" separados como na Vercel — hoje é um único ambiente (produção) na VPS; `apps/web/.env.local` continua servindo só para desenvolvimento local.
+
+## Infraestrutura self-hosted (VPS)
+
+| Item | Valor |
+| --- | --- |
+| Provedor / plano | Hostinger, KVM1 (2 vCPU anunciados, `lscpu` mostra 1 — a confirmar com o suporte) |
+| IP | `2.25.234.75` |
+| SO | Ubuntu 24.04 LTS |
+| Acesso | SSH com chave (`~/.ssh/asic_monitor_vps`), usuário `root` |
+| Painel | EasyPanel (`http://2.25.234.75:3000`), API bearer token próprio, Docker Swarm de nó único |
+| Proxy/TLS | Traefik (gerenciado pelo EasyPanel), certificados Let's Encrypt automáticos |
+| Domínios | `monitorasic.club` e `www.monitorasic.club` → app (`asic-monitor_web`, projeto `asic-monitor`); `db.monitorasic.club` → `supabase-envoy` |
+| DNS | Dynadot (`ns1.dyna-ns.net`/`ns2.dyna-ns.net`) — painel do próprio domínio, TTL 5 min |
+| Deploy do app | GitHub → EasyPanel (`source.type: "github"`, `owner: theus1478`, `repo: asic-monitor-saas`, `path: /apps/web`, `ref: main`), build via `apps/web/Dockerfile` (`build.type: "dockerfile"`, `file: "Dockerfile"`, relativo a `path`) |
+| Auto-deploy | **Ainda não habilitado** — falta configurar um token do GitHub (`setGithubToken` na API do EasyPanel) com permissão `Contents: Read` + `Webhooks: Read and write` no repositório. Até lá, redeploy é manual: `GET /api/deploy/<token do serviço>`. |
+
+### Tarefas agendadas (substituem o Vercel Cron)
+
+A Vercel executava os crons definidos em `apps/web/vercel.json`. Na VPS isso
+virou `crontab` do usuário `root`, chamando as mesmas rotas com
+`Authorization: Bearer $CRON_SECRET`:
+
+```
+0 6 * * * curl -sS -m 30 -H "Authorization: Bearer <CRON_SECRET>" https://monitorasic.club/api/cron/affiliate-commissions >> /var/log/asic-monitor-cron.log 2>&1
+0 7 * * * curl -sS -m 30 -H "Authorization: Bearer <CRON_SECRET>" https://monitorasic.club/api/cron/asic-health-sweep >> /var/log/asic-monitor-cron.log 2>&1
+```
+
+### Descomissionamento (pendente)
+
+Vercel e o projeto Supabase Cloud antigo (`asicmonitor`) devem ser
+desligados/rebaixados **somente depois de alguns dias de operação estável**
+na VPS — sem pressa, e não unilateralmente. Enquanto isso, ambos continuam
+existindo como rede de segurança, mas não recebem tráfego real.
 
 ## Agente local da fazenda
 
@@ -44,16 +103,16 @@ Cada cliente receberá um arquivo `config.json` baseado em `apps/agent/config.ex
 
 | Campo | Uso |
 | --- | --- |
-| `api_url` | Endpoint HTTPS da aplicação Vercel |
+| `api_url` | Endpoint HTTPS da aplicação — `https://monitorasic.club/api/agent/metrics` (domínio próprio, não muda mesmo com a troca de hospedagem) |
 | `agent_token` | Token exclusivo e revogável de uma fazenda |
 | `poll_interval_seconds` | Intervalo de leitura dos ASICs |
 | `miners` | Endereços IP locais autorizados para monitoramento |
 
-O agente nunca armazena credenciais Supabase, chave de carteira ou senha do administrador.
+O agente nunca armazena credenciais Supabase, chave de carteira ou senha do administrador. Como o `api_url` de cada cliente já usa o domínio próprio (`monitorasic.club`), a troca de hospedagem foi transparente para agentes já instalados — nenhuma reconfiguração foi necessária.
 
 ## GitHub
 
-O repositório é `theus1478/asic-monitor-saas`. Para automações, use token fine-grained limitado a esse repositório e apenas com permissão **Contents: Read and write**. Defina uma expiração curta e revogue-o quando a configuração terminar.
+O repositório é `theus1478/asic-monitor-saas`. Para automações, use token fine-grained limitado a esse repositório. Para deploy manual/CI, `Contents: Read and write` basta; para habilitar o auto-deploy do EasyPanel (webhook), inclua também `Webhooks: Read and write`. Defina uma expiração curta e revogue-o quando a configuração terminar.
 
 ## Senhas e recuperação
 

@@ -17,15 +17,27 @@ flowchart LR
   G --> C
 ```
 
-## Infraestrutura proposta
+## Infraestrutura
 
-| Necessidade | Serviço inicial |
+| Necessidade | Serviço |
 | --- | --- |
-| Painel e API | Next.js em Vercel |
-| Banco de dados | Postgres gerenciado |
+| Painel e API | Next.js self-hosted numa VPS (Hostinger KVM1), via EasyPanel/Docker Swarm + Traefik (TLS automático) |
+| Banco de dados | Postgres self-hosted (pilha oficial `supabase/supabase`, Docker Compose, na mesma VPS) |
 | Autenticação | Organizações e permissões por usuário |
 | Assinaturas | Faturas em USDT na rede Solana e monitoramento on-chain |
 | Agente | Python empacotado como serviço Windows sem interface |
+
+Rodou em Vercel + Supabase Cloud (plano Free) até 2026-09-18, quando a
+instância `t3.nano` do Supabase Cloud começou a saturar (~98% CPU sob carga
+normal, timeouts de conexão) e a operação foi migrada para self-hosted —
+banco de dados inteiro (`pg_dump`/`pg_restore`, `auth` + `public`) e
+aplicação (novo `apps/web/Dockerfile`) para a mesma VPS, com domínio próprio
+(`monitorasic.club` para o app, `db.monitorasic.club` para o Supabase) atrás
+de Traefik com certificados Let's Encrypt reais. Detalhes operacionais
+(variáveis de ambiente, cron jobs, DNS, pendências de auto-deploy) em
+`docs/configuration.md`. Vercel e o projeto Supabase Cloud antigo continuam
+existindo como rede de segurança, sem receber tráfego, até o
+descomissionamento.
 
 ## Entidades
 
@@ -152,15 +164,20 @@ isso ainda (ver "Ainda não implementado" no painel administrativo).
 O login e o cadastro exigem verificação do **Cloudflare Turnstile** quando
 `NEXT_PUBLIC_TURNSTILE_SITE_KEY` está configurada (local e produção usam a
 mesma site key, com os domínios `localhost`, `127.0.0.1` e o domínio de
-produção liberados no widget, no dashboard do Cloudflare). O secret key
-correspondente fica configurado em Supabase → Authentication → Attack
-Protection, então a verificação acontece nativamente dentro do
-`signInWithPassword`/`signUp` do Supabase Auth — o código do app só precisa
-repassar o `cf-turnstile-response` recebido do formulário. Exceção: o
-cadastro (`signUp()`) cria a conta pela API administrativa (ver "Confirmação
-de e-mail" abaixo), que não recebe `captchaToken` — nesse caso a verificação
-acontece no `signInWithPassword` imediatamente seguinte, não na criação em
-si.
+produção liberados no widget, no dashboard do Cloudflare). No Supabase
+Cloud, o secret key correspondente ficava configurado em Supabase →
+Authentication → Attack Protection, e a verificação acontecia nativamente
+dentro do `signInWithPassword`/`signUp` do GoTrue. **No self-hosted
+(`docker/.env` da pilha Supabase na VPS) essa configuração
+(`GOTRUE_SECURITY_CAPTCHA_*`) ainda não foi replicada** — o widget continua
+sendo exigido e resolvido no navegador (proteção real contra bots/scripts
+automatizados), mas o `cf-turnstile-response` enviado ao `signInWithPassword`
+não é validado no servidor por enquanto. Pendência a resolver antes de
+considerar a proteção equivalente à que existia na Vercel/Supabase Cloud.
+Exceção: o cadastro (`signUp()`) cria a conta pela API administrativa (ver
+"Confirmação de e-mail" abaixo), que não recebe `captchaToken` — nesse caso
+a verificação (quando configurada) acontece no `signInWithPassword`
+imediatamente seguinte, não na criação em si.
 
 Não configurar `NEXT_PUBLIC_TURNSTILE_SITE_KEY` em desenvolvimento local é a
 forma suportada de testar sem o widget — o site key de produção não valida o
@@ -307,9 +324,8 @@ já é o dado bruto, reconstituído sob demanda em vez de duplicado.
   importa) — usa o mesmo padrão já existente em `lib/affiliate.ts`
   (`releaseMaturedCommissions`): checagem "preguiçosa" a cada carregamento da
   Visão Geral/página da fazenda (`offline-sweep.ts`), com um cron diário como
-  backstop (`/api/cron/asic-health-sweep` — diário porque o único cron já
-  existente no projeto roda 1x/dia, sinal de que não dá pra agendar algo mais
-  frequente no plano atual do Vercel).
+  backstop (`/api/cron/asic-health-sweep`, hoje via `crontab` na própria VPS
+  — ver "Tarefas agendadas" em `docs/configuration.md`).
 - **Deduplicação e anti-spam:** e-mail só sai se `alert_settings.email_enabled`,
   a regra não estiver desabilitada, e (a) é a primeira detecção ou (b) já
   passou `reminder_cooldown_minutes` desde o último e-mail daquela ocorrência.
@@ -328,8 +344,8 @@ já é o dado bruto, reconstituído sob demanda em vez de duplicado.
   divergir delas.
 
 Requer `RESEND_API_KEY` (e opcionalmente `ALERT_EMAIL_FROM`) configurada no
-Vercel — sem ela, o motor continua registrando ocorrências normalmente, só o
-e-mail fica marcado como `skipped`.
+serviço `web` do EasyPanel — sem ela, o motor continua registrando
+ocorrências normalmente, só o e-mail fica marcado como `skipped`.
 
 ## Consumo de energia (`miner_energy_daily`)
 
