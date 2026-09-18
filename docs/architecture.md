@@ -24,7 +24,7 @@ flowchart LR
 | Painel e API | Next.js self-hosted numa VPS (Hostinger KVM1), via EasyPanel/Docker Swarm + Traefik (TLS automático) |
 | Banco de dados | Postgres self-hosted (pilha oficial `supabase/supabase`, Docker Compose, na mesma VPS) |
 | Autenticação | Organizações e permissões por usuário |
-| Assinaturas | Faturas em USDT-BEP20 (BNB Smart Chain) processadas por um BitCart self-hosted, com webhook de confirmação |
+| Assinaturas | Faturas em USDT na rede Solana e monitoramento on-chain |
 | Agente | Python empacotado como serviço Windows sem interface |
 
 Rodou em Vercel + Supabase Cloud (plano Free) até 2026-09-18, quando a
@@ -252,57 +252,51 @@ Fora do escopo por enquanto: reset de senha continua no link tradicional do
 Supabase (não foi convertido pra OTP), e não existe OTP genérico pra "ações
 sensíveis".
 
-## Pagamentos via BitCart (USDT-BEP20)
+## Pagamentos em USDT
 
-As faturas são pagas em **USDT na BNB Smart Chain (BEP-20)** e processadas por
-um **BitCart** self-hosted na mesma VPS (a cobrança em USDT-Solana, com
-endereço derivado por fatura e sweep manual, foi descontinuada em
-2026-09-18 — ver `docs/configuration.md` para a infraestrutura). O BitCart
-detecta o pagamento on-chain e avisa o app por webhook; o app só decide o que
-fazer com a licença.
+O SaaS não depende de uma exchange para receber pagamentos: monitora os
+pagamentos diretamente na blockchain, na rede **Solana**. Cada fatura recebe um
+**endereço de depósito exclusivo**, não uma carteira compartilhada — é isso que
+permite identificar quem pagou mesmo quando o pagamento vem sem memo/tag, como
+um saque direto de exchange (Binance etc. não deixam anexar memo num saque de
+Solana).
 
-**Carteira watch-only:** o BitCart conhece apenas o *endereço público* BSC do
-dono (`invoices.wallet_address` = esse endereço). Nenhuma chave privada ou
-seed existe na VPS — mesmo com a VPS comprometida ninguém consegue mover os
-fundos, que caem direto na carteira do dono (não há tesouraria intermediária
-nem varredura).
+1. Ao gerar uma fatura, `createLicensePurchase` (`app/billing/actions.ts`)
+   deriva um par de chaves Solana exclusivo para aquela fatura e grava só o
+   endereço público (`invoices.wallet_address` / `deposit_address`).
+2. O painel mostra esse endereço, QR Code (Solana Pay URI), valor e status
+   pendente. O QR e o endereço copiável apontam para o endereço da própria
+   fatura, não para uma carteira fixa do sistema.
+3. `verifyLicensePurchase` consulta a rede Solana pelas transferências USDT
+   recebidas *naquele endereço específico*; qualquer valor recebido lá já
+   identifica a fatura, sem depender de memo ou de um valor fracionário único.
+4. Após confirmar, o sistema varre (sweep) o saldo do endereço da fatura para
+   a carteira de tesouraria (`BILLING_WALLET_PUBLIC_KEY`), registrando
+   `invoices.swept_at`/`sweep_signature`. Se a varredura falhar, o pagamento já
+   fica confirmado mesmo assim — o saldo continua seguro no endereço da fatura
+   até a próxima tentativa, já que a chave privada é recalculável a qualquer momento.
+5. A confirmação ativa ou renova a licença automaticamente.
+6. O pagamento atrasado aplica período de tolerância e, depois, suspende coleta
+   e acesso até a regularização, sem apagar os dados do cliente.
 
-**Como uma fatura é identificada:** todas as faturas usam o mesmo endereço,
-então o que distingue uma da outra é o **valor exato em USDT**.
-`createLicensePurchase` soma ao preço-base uma "poeira" aleatória de
-0,000001 a 0,000999 USDT e só aceita o valor se nenhuma fatura *pendente e
-ainda válida* tiver o mesmo `amount_usdt` (checagem com o service client, já
-que a RLS esconde faturas de outras organizações). O painel mostra o valor com
-6 casas e o QR (URI EIP-681, `lib/pricing.ts#buildBscUsdtUri`) já leva o
-valor exato pré-preenchido.
+### Custódia das chaves (`lib/solana-wallet.ts`)
 
-1. `createLicensePurchase` (`app/billing/actions.ts`) cria a invoice no BitCart
-   (`lib/bitcart.ts#createBitcartInvoice`, moeda `USDT`, validade de 30 min,
-   `notification_url` apontando para o webhook) e grava `invoices` +
-   `license_batches` pendentes (`invoices.bitcart_invoice_id`).
-2. O cliente paga (carteira ou saque de exchange, rede BSC) o valor exato.
-3. O BitCart chama `POST /api/webhooks/bitcart?secret=…`
-   (`app/api/webhooks/bitcart/route.ts`). O corpo **não é confiável**: o app usa
-   só o `id` e reconsulta a invoice na API do BitCart. Só `confirmed`/`complete`
-   sem exceção (ou `paid_over`) e com `sent_amount` ≥ valor esperado libera a
-   licença (`isBitcartInvoicePaid`).
-4. `activateLicenseForInvoice` (`lib/billing.ts`) marca a fatura como paga
-   (guardado por `.eq("status","pending")`, então webhook e botão manual nunca
-   ativam duas vezes), ativa o `license_batches` por 30 dias, recalcula
-   `subscriptions.licensed_machines`/`current_period_end` e registra a comissão
-   de afiliado.
-5. **Fallback manual:** o botão "Verificar pagamento" (`verifyLicensePurchase`)
-   consulta o BitCart na hora e reaproveita `activateLicenseForInvoice` — útil se
-   o webhook atrasar. Faturas antigas da era Solana (sem `bitcart_invoice_id`)
-   pedem para gerar uma nova.
-6. Pagamentos fora do previsto (`paid_partially`, `paid_after_expiration`…) não
-   ativam licença automaticamente e ficam para conferência manual no painel do
-   BitCart.
+Nenhuma chave privada de fatura é persistida. `deriveInvoiceKeypair(reference)`
+recalcula o par de chaves sob demanda via HMAC-SHA512 de uma semente mestra
+(`INVOICE_DERIVATION_SEED`, variável de ambiente só no servidor) com a
+referência da fatura como mensagem, truncado a 32 bytes e usado como seed
+Ed25519. A mesma referência sempre deriva o mesmo endereço; referências
+diferentes derivam endereços diferentes — não há como recuperar a chave
+mestra a partir de um endereço derivado.
 
-O período de tolerância/suspensão por atraso descrito em versões anteriores
-deste documento **não existe no código**: `subscriptions.status` é só
-informativo e o único controle real é o licenciamento por máquina via
-`license_batches` (`lib/license.ts`).
+A varredura (sweep) usa uma segunda carteira, dedicada e de baixo valor — a
+"carteira de combustível" (`FEE_PAYER_SECRET_KEY`) — que só paga a taxa de rede
+da transação de varredura. A carteira de tesouraria (`BILLING_WALLET_PUBLIC_KEY`)
+nunca precisa da própria chave privada no servidor: quem assina a varredura é o
+par derivado da fatura (dono do token account de origem) e a carteira de
+combustível (paga a taxa). Um comprometimento da carteira de combustível não dá
+acesso aos fundos do cliente nem da tesouraria — na pior hipótese, alguém gasta
+o pouco SOL nela depositado para cobrir taxas.
 
 ## Ocorrências, alertas e logs em tempo real (`lib/asic-alerts/`)
 

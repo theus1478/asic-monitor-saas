@@ -54,11 +54,9 @@ bundle do navegador, já que são embutidas em tempo de build; as demais
 | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | URL canônica do painel: `https://monitorasic.club` |
 | `AGENT_TOKEN_PEPPER` | Segredo usado para gerar hashes dos tokens dos agentes |
-| `BITCART_API_URL` | API do BitCart usada pelo app. Em produção o endereço **interno** `http://bitcart-backend-1:8000` (mesma rede Docker `easypanel`); o público é `https://pay-api.monitorasic.club`. |
-| `BITCART_API_TOKEN` | Token do BitCart com permissão só de `invoice_management` (criar/ler invoices). Segredo. |
-| `BITCART_STORE_ID` | Id da loja "ASIC Monitor" no BitCart. |
-| `BITCART_WEBHOOK_SECRET` | Segredo (32 bytes hex) que vai na query da `notification_url` e é exigido por `POST /api/webhooks/bitcart`. Sem ele o webhook responde 401. |
-| `BITCART_WEBHOOK_BASE_URL` | Base usada na `notification_url` das invoices. Em produção `http://asic-monitor_web:3000` (o BitCart chama o app pela rede interna, sem depender do DNS público/hairpin da VPS); se ausente cai em `NEXT_PUBLIC_APP_URL`. |
+| `SOLANA_RPC_URL` | Endpoint RPC para o monitor on-chain validar transferências USDT (ainda não implementado) |
+| `NEXT_PUBLIC_SOLANA_USDT_MINT` | Endereço do mint do USDT na rede Solana. Usado no QR code de pagamento (Solana Pay), por isso é público — não é segredo. |
+| `NEXT_PUBLIC_BILLING_WALLET_PUBLIC_KEY` | Endereço público que recebe USDT. Público por natureza (é para onde o cliente paga), exposto no navegador para montar o QR code da fatura. |
 | `RESEND_API_KEY` | Envio de e-mail transacional (alertas de ocorrência e o código de confirmação de 6 dígitos no cadastro/troca de e-mail) via Resend. Sem ela, ocorrências continuam sendo registradas normalmente (só o e-mail fica `skipped`), mas cadastro/verificação de e-mail não funcionam. |
 | `ALERT_EMAIL_FROM` | Remetente usado nos e-mails acima. Opcional — sem ela, usa `ASIC Monitor <alerts@resend.dev>`. |
 | `CRON_SECRET` | Protege as rotas `/api/cron/*` contra chamadas externas — exigido pelo `crontab` da própria VPS (ver "Tarefas agendadas" abaixo). Opcional no código, mas configurado em produção. |
@@ -80,48 +78,6 @@ Não existe mais "Development/Preview/Production" separados como na Vercel — h
 | DNS | Dynadot (`ns1.dyna-ns.net`/`ns2.dyna-ns.net`) — painel do próprio domínio, TTL 5 min |
 | Deploy do app | GitHub → EasyPanel (`source.type: "github"`, `owner: theus1478`, `repo: asic-monitor-saas`, `path: /apps/web`, `ref: main`), build via `apps/web/Dockerfile` (`build.type: "dockerfile"`, `file: "Dockerfile"`, relativo a `path`) |
 | Auto-deploy | **Ainda não habilitado** — falta configurar um token do GitHub (`setGithubToken` na API do EasyPanel) com permissão `Contents: Read` + `Webhooks: Read and write` no repositório. Até lá, redeploy é manual: `GET /api/deploy/<token do serviço>`. |
-
-### BitCart (pagamentos USDT-BEP20)
-
-Stack oficial `bitcart/bitcart-docker` em `/opt/bitcart-docker` na VPS, **sem
-usar o `setup.sh`** (ele reinicia o Docker, registra serviço systemd e monta o
-`authorized_keys` do host no container — risco de tomada do servidor). O
-compose foi gerado à mão com `./build.sh` e subido com o projeto `bitcart`:
-
-```
-export NAME=bitcart BITCART_INSTALL=backend BITCART_ADDITIONAL_COMPONENTS=admin \
-  BITCART_CRYPTOS=bnb BITCART_REVERSEPROXY=none \
-  BITCART_HOST=pay-api.monitorasic.club BITCART_ADMIN_HOST=pay.monitorasic.club \
-  BITCART_ADMIN_API_URL=https://pay-api.monitorasic.club BITCART_HTTPS_ENABLED=true \
-  BITCART_BACKEND_PORT=127.0.0.1:8100 BITCART_ADMIN_PORT=127.0.0.1:4100
-./build.sh
-docker compose -p bitcart --env-file .env -f compose/generated.yml -f compose/override-easypanel.yml up -d
-```
-
-| Item | Valor |
-| --- | --- |
-| Containers | `bitcart-backend-1`, `bitcart-worker-1`, `bitcart-admin-1`, `bitcart-database-1` (Postgres próprio), `bitcart-redis-1`, `bitcart-binancecoin-1` (daemon BNB via RPC público — não sincroniza nó) |
-| Portas no host | só loopback (`127.0.0.1:8100` API, `127.0.0.1:4100` painel); nada exposto publicamente |
-| Rede/TLS | `compose/override-easypanel.yml` anexa `backend` e `admin` à rede `easypanel` e define `mem_limit`; rotas Traefik manuais em `/etc/easypanel/traefik/config/bitcart.yaml` (`pay.monitorasic.club` → painel, `pay-api.monitorasic.club` → API), certificados Let's Encrypt |
-| DNS (Dynadot) | `pay` e `pay-api` → `2.25.234.75` |
-| Carteira | wallet watch-only `USDT-BEP20` (moeda `bnb`, contrato `0x55d398326f99059fF775485246999027B3197955`) sobre o endereço público BSC do dono — sem chave privada na VPS |
-| Credenciais | `/opt/bitcart-docker/app-credentials.env` (chmod 600, só na VPS): login do painel (`billing-admin@monitorasic.club`), id da loja/wallet e token do app |
-| Swap | 2 GB (`/swapfile`, em `/etc/fstab`) — a VPS tem só 3,8 GB de RAM |
-
-Pontos de atenção:
-
-- **Faturas simultâneas:** como a carteira é um único endereço, o BitCart não
-  distingue invoices de mesmo valor (testado: 3 invoices de US$ 1 saíram com o
-  mesmo endereço e valor). O app resolve dando a cada fatura um valor único —
-  ver "Pagamentos via BitCart" em `docs/architecture.md`.
-- **Recriar containers** (`docker compose up --force-recreate`) mantém a rede
-  `easypanel` porque ela está no override; sem o `-f compose/override-easypanel.yml`
-  a rota Traefik deixa de alcançar o BitCart.
-- O painel `pay.monitorasic.club` é público (tela de login). Use senha forte e
-  considere restringir por IP se não for usado no dia a dia — a API pode ser
-  operada só pelo app.
-- Segredos rotacionados em 2026-09-18 para 32 bytes: `CRON_SECRET` e
-  `BITCART_WEBHOOK_SECRET` (as versões anteriores tinham só 16 caracteres).
 
 ### Tarefas agendadas (substituem o Vercel Cron)
 
@@ -162,4 +118,4 @@ O repositório é `theus1478/asic-monitor-saas`. Para automações, use token fi
 
 - Guarde senhas de banco, carteiras e contas em um gerenciador de senhas.
 - A senha do banco Postgres não deve entrar em `.env`, no código ou no GitHub.
-- Nenhuma seed phrase ou chave privada de carteira deve existir na VPS ou no app. O BitCart usa só o endereço público BSC do dono (watch-only).
+- A seed phrase da carteira Solana nunca deve ser usada pela aplicação. A cobrança utiliza somente a chave pública.

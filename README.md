@@ -32,6 +32,6 @@ administrador, exclusão reversível). Quem tem esse papel vê um atalho fixo
 "⚙ Painel admin" no canto superior direito de qualquer página do painel do
 cliente.
 
-Preço: **US$ 1,00 por máquina ativa/mês**, valor único, sem faixas por volume. As faturas mensais são pagas em **USDT na BNB Smart Chain (BEP-20)**, processadas por um BitCart self-hosted que avisa o app por webhook quando o pagamento é confirmado.
+Preço: **US$ 1,00 por máquina ativa/mês**, valor único, sem faixas por volume. As faturas mensais serão pagas em **USDT na rede Solana**, com conferência automática na blockchain.
 
 Leia [a arquitetura](docs/architecture.md) antes de iniciar a implementação.
