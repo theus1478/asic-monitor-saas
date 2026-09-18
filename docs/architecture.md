@@ -267,17 +267,14 @@ seed existe na VPS — mesmo com a VPS comprometida ninguém consegue mover os
 fundos, que caem direto na carteira do dono (não há tesouraria intermediária
 nem varredura).
 
-**Como uma fatura é identificada:** todas as faturas usam o mesmo endereço
-(testado: mesmo com carteira HD, o BNB do BitCart usa um endereço só por
-carteira — não existe endereço por fatura), então o que distingue uma da
-outra é o **valor exato em USDT**. `createLicensePurchase` cobra o valor
-exato (ex.: 1,00 por licença) e **só se já existir outra fatura pendente e
-ainda válida com o mesmo `amount_usdt`** soma uma "poeira" aleatória de
-0,000001 a 0,000999 USDT (checagem com o service client, já que a RLS esconde
-faturas de outras organizações). Há uma janela mínima de corrida se duas
-faturas iguais forem criadas no mesmo instante. O painel mostra o valor (2 ou
-6 casas) e o QR (URI EIP-681, `lib/pricing.ts#buildBscUsdtUri`) já leva o
-valor pré-preenchido.
+**Como uma fatura é identificada:** todas as faturas usam o mesmo endereço,
+então o que distingue uma da outra é o **valor exato em USDT**.
+`createLicensePurchase` soma ao preço-base uma "poeira" aleatória de
+0,000001 a 0,000999 USDT e só aceita o valor se nenhuma fatura *pendente e
+ainda válida* tiver o mesmo `amount_usdt` (checagem com o service client, já
+que a RLS esconde faturas de outras organizações). O painel mostra o valor com
+6 casas e o QR (URI EIP-681, `lib/pricing.ts#buildBscUsdtUri`) já leva o
+valor exato pré-preenchido.
 
 1. `createLicensePurchase` (`app/billing/actions.ts`) cria a invoice no BitCart
    (`lib/bitcart.ts#createBitcartInvoice`, moeda `USDT`, validade de 30 min,
