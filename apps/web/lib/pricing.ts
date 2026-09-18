@@ -25,26 +25,16 @@ export function averageUnitPriceCents(machineCount: number, tiers: PricingTier[]
   return monthlyPriceCents(machineCount, tiers) / machineCount;
 }
 
-/** Mint oficial do USDT (Tether) na rede Solana. */
-export const SOLANA_USDT_MINT = process.env.NEXT_PUBLIC_SOLANA_USDT_MINT ?? "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
-
-export const BILLING_WALLET_PUBLIC_KEY =
-  process.env.NEXT_PUBLIC_BILLING_WALLET_PUBLIC_KEY ?? "HixKsNWU1Zv4mtajtecLdXYiXLvsNHdpjSSGwXdJkpWn";
+/** USDT (Binance-Peg, 18 casas decimais) na BNB Smart Chain. */
+export const BSC_USDT_CONTRACT = "0x55d398326f99059fF775485246999027B3197955";
+const BSC_CHAIN_ID = 56;
 
 /**
- * Monta um Solana Pay Transfer Request URI apontando para o endereço de
- * depósito exclusivo da fatura (ver lib/solana-wallet.ts). O endereço sozinho
- * já identifica o cliente, então o memo aqui é só um reforço opcional — segue
- * incluído porque carteiras compatíveis com Solana Pay o preenchem de graça,
- * mas saques diretos de exchange (sem suporte a memo) pagam normalmente.
+ * URI de transferência de token (EIP-681) para carteiras BSC — mesmo formato
+ * que o BitCart devolve em `payment_url`. O valor exato é o que identifica a
+ * fatura (todas usam o mesmo endereço), por isso vai pré-preenchido no QR.
  */
-export function buildSolanaPayUri(amountUsdt: number, reference: string, destinationAddress: string) {
-  const params = new URLSearchParams({
-    amount: amountUsdt.toFixed(2),
-    "spl-token": SOLANA_USDT_MINT,
-    label: "ASIC Monitor Cloud",
-    message: `Assinatura mensal — ref. ${reference}`,
-    memo: reference,
-  });
-  return `solana:${destinationAddress}?${params.toString()}`;
+export function buildBscUsdtUri(amountUsdt: number, destinationAddress: string) {
+  const wei = BigInt(Math.round(amountUsdt * 1_000_000)) * 10n ** 12n;
+  return `ethereum:${BSC_USDT_CONTRACT}@${BSC_CHAIN_ID}/transfer?address=${destinationAddress}&uint256=${wei.toString()}`;
 }

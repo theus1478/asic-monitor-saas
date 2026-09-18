@@ -1,13 +1,27 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { getOrganizationId } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
-import { monthlyPriceCents, SOLANA_USDT_MINT } from "../../lib/pricing";
-import { recordAffiliateCommissionForInvoice } from "../../lib/affiliate";
-import { deriveInvoiceKeypair, sweepInvoiceFunds } from "../../lib/solana-wallet";
+import { monthlyPriceCents } from "../../lib/pricing";
+import { createBitcartInvoice, getBitcartInvoice, isBitcartInvoicePaid } from "../../lib/bitcart";
+import { activateLicenseForInvoice } from "../../lib/billing";
+
+const INVOICE_VALIDITY_MINUTES = 30;
+
+// A carteira do BitCart é um único endereço, então cada fatura em aberto
+// precisa de um valor exato diferente (até +0,000999 USDT) para o pagamento
+// ser atribuído ao cliente certo. Precisa do service client: a RLS esconde as
+// faturas de outras organizações.
+async function pickUniqueAmount(service: ReturnType<typeof createServiceClient>, baseAmount: number) {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const amount = Number((baseAmount + randomInt(1, 1000) / 1_000_000).toFixed(6));
+    const { count } = await service.from("invoices").select("id", { count: "exact", head: true }).eq("status", "pending").gt("due_at", new Date().toISOString()).eq("amount_usdt", amount);
+    if (!count) return amount;
+  }
+  throw new Error("Não foi possível gerar um valor único para a cobrança. Tente novamente.");
+}
 
 export async function createLicensePurchase(formData: FormData) {
   const quantity = Math.max(1, Math.min(9999, Math.round(Number(formData.get("quantity")) || 0)));
@@ -19,96 +33,52 @@ export async function createLicensePurchase(formData: FormData) {
     if (result.error) redirect(`/billing?error=${encodeURIComponent(result.error.message)}`);
     subscription = result.data;
   }
+
   const reference = `LIC-${randomUUID()}`;
-  const depositAddress = deriveInvoiceKeypair(reference).publicKey.toBase58();
-  const amountUsdt = monthlyPriceCents(quantity) / 100;
-  const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: amountUsdt, wallet_address: depositAddress, deposit_address: depositAddress, network: "solana", status: "pending", due_at: new Date(Date.now() + 30 * 60_000).toISOString() }).select("id").single();
+  let charge: { id: string; address: string; amountUsdt: number };
+  try {
+    const service = createServiceClient();
+    const amountUsdt = await pickUniqueAmount(service, monthlyPriceCents(quantity) / 100);
+    // Quem chama o webhook é o container do BitCart, na mesma VPS — em produção
+    // BITCART_WEBHOOK_BASE_URL aponta para o endereço interno do app (evita
+    // depender do DNS público / hairpin da própria VPS).
+    const webhookBase = process.env.BITCART_WEBHOOK_BASE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://monitorasic.club";
+    const notificationUrl = `${webhookBase}/api/webhooks/bitcart?secret=${encodeURIComponent(process.env.BITCART_WEBHOOK_SECRET ?? "")}`;
+    charge = await createBitcartInvoice({ orderId: reference, amountUsdt, expirationMinutes: INVOICE_VALIDITY_MINUTES, notificationUrl });
+  } catch (error) {
+    redirect(`/billing?error=${encodeURIComponent(error instanceof Error ? error.message : "Não foi possível gerar a cobrança.")}`);
+  }
+
+  const { data: invoice, error } = await supabase.from("invoices").insert({ organization_id: organizationId, subscription_id: subscription.id, reference, amount_usdt: charge.amountUsdt, wallet_address: charge.address, network: "bsc", bitcart_invoice_id: charge.id, status: "pending", due_at: new Date(Date.now() + INVOICE_VALIDITY_MINUTES * 60_000).toISOString() }).select("id").single();
   if (error || !invoice) redirect(`/billing?error=${encodeURIComponent(error?.message ?? "Não foi possível gerar a cobrança.")}`);
   const batch = await supabase.from("license_batches").insert({ organization_id: organizationId, invoice_id: invoice.id, quantity, status: "pending" });
   if (batch.error) redirect(`/billing?error=${encodeURIComponent(batch.error.message)}`);
   redirect(`/billing?invoice=${invoice.id}`);
 }
 
-type RpcTokenBalance = { mint?: string; owner?: string; uiTokenAmount?: { amount?: string; decimals?: number } };
-type ParsedTransaction = {
-  meta?: { err?: unknown; preTokenBalances?: RpcTokenBalance[]; postTokenBalances?: RpcTokenBalance[] };
-};
-
-function tokenTotal(balances: RpcTokenBalance[] | undefined, owner: string) {
-  return (balances ?? []).filter((item) => item.owner === owner && item.mint === SOLANA_USDT_MINT).reduce((sum, item) => {
-    const raw = Number(item.uiTokenAmount?.amount ?? 0), decimals = item.uiTokenAmount?.decimals ?? 6;
-    return sum + raw / 10 ** decimals;
-  }, 0);
-}
-
-async function rpc(method: string, params: unknown[]) {
-  const response = await fetch(process.env.SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com", {
-    method: "POST", headers: { "content-type": "application/json" }, cache: "no-store",
-    body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method, params }),
-  });
-  if (!response.ok) throw new Error(`RPC Solana indisponível (${response.status}).`);
-  const payload = await response.json();
-  if (payload.error) throw new Error(payload.error.message ?? "Falha ao consultar a rede Solana.");
-  return payload.result;
-}
-
+// Fallback manual: a confirmação normal chega sozinha pelo webhook do BitCart
+// (app/api/webhooks/bitcart), este botão só consulta o BitCart na hora.
 export async function verifyLicensePurchase(invoiceId: string) {
   const { supabase, organizationId } = await getOrganizationId();
   if (!organizationId) redirect("/sign-in");
-  const { data: invoice } = await supabase.from("invoices").select("id, reference, amount_usdt, wallet_address, status, due_at").eq("id", invoiceId).eq("organization_id", organizationId).maybeSingle();
+  const { data: invoice } = await supabase.from("invoices").select("id, amount_usdt, status, due_at, bitcart_invoice_id").eq("id", invoiceId).eq("organization_id", organizationId).maybeSingle();
   if (!invoice) redirect("/billing?error=Cobrança não encontrada.");
   if (invoice.status === "paid") redirect("/billing");
-  if (new Date(invoice.due_at).getTime() < Date.now()) redirect(`/billing?invoice=${invoice.id}&error=${encodeURIComponent("A cobrança expirou. Gere uma nova cobrança.")}`);
+  if (!invoice.bitcart_invoice_id) redirect(`/billing?error=${encodeURIComponent("Cobrança antiga (rede Solana, descontinuada). Gere uma nova cobrança.")}`);
 
+  let message: string | null = null;
   try {
-    // O endereço de depósito é exclusivo desta fatura (derivado sob demanda —
-    // ver lib/solana-wallet.ts), então qualquer USDT recebido nele já
-    // identifica o cliente por si só, sem depender de memo. Isso cobre
-    // inclusive saques diretos de exchange, que não deixam anexar memo/tag
-    // num saque de Solana.
-    const tokenAccounts = await rpc("getTokenAccountsByOwner", [invoice.wallet_address, { mint: SOLANA_USDT_MINT }, { encoding: "jsonParsed" }]);
-    const addresses = (tokenAccounts?.value ?? []).map((entry: { pubkey: string }) => entry.pubkey);
-    const signatures = (await Promise.all(addresses.map(async (address: string) => rpc("getSignaturesForAddress", [address, { limit: 60 }])))).flat();
-    const unique = [...new Map(signatures.filter((item: { err?: unknown }) => !item.err).map((item: { signature: string }) => [item.signature, item])).values()] as Array<{ signature: string }>;
-
-    const candidates: { signature: string; transaction: ParsedTransaction; received: number }[] = [];
-    for (const item of unique.slice(0, 100)) {
-      const transaction = await rpc("getTransaction", [item.signature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]) as ParsedTransaction | null;
-      if (!transaction || transaction.meta?.err) continue;
-      const received = tokenTotal(transaction.meta?.postTokenBalances, invoice.wallet_address) - tokenTotal(transaction.meta?.preTokenBalances, invoice.wallet_address);
-      if (received > 0) candidates.push({ signature: item.signature, transaction, received });
+    const bitcartInvoice = await getBitcartInvoice(invoice.bitcart_invoice_id);
+    if (isBitcartInvoicePaid(bitcartInvoice, Number(invoice.amount_usdt))) {
+      await activateLicenseForInvoice(createServiceClient(), invoice.id, bitcartInvoice.tx_hashes?.[0]);
+    } else if (new Date(invoice.due_at).getTime() < Date.now()) {
+      message = "A cobrança expirou. Gere uma nova cobrança.";
+    } else {
+      message = "Pagamento ainda não confirmado. Confira se enviou o valor exato (com as casas decimais) e tente novamente em alguns minutos.";
     }
-
-    const expected = Number(invoice.amount_usdt);
-    const match = candidates.find((c) => c.received + 0.000001 >= expected) ?? null;
-    if (!match) throw new Error("Pagamento ainda não localizado. Confira se enviou o valor exato (com as casas decimais) e tente novamente em alguns minutos.");
-
-    const service = createServiceClient();
-    const paidAt = new Date(), expiresAt = new Date(paidAt.getTime() + 30 * 86400_000);
-    const { error: invoiceError } = await service.from("invoices").update({ status: "paid", paid_at: paidAt.toISOString(), transaction_signature: match.signature }).eq("id", invoice.id).eq("status", "pending");
-    if (invoiceError) throw invoiceError;
-
-    // Varre o valor recebido no endereço da fatura para a carteira de
-    // tesouraria. Não bloqueia a confirmação do pagamento se falhar (ex.:
-    // RPC instável) — o saldo fica seguro no endereço derivado até a próxima
-    // tentativa, já que a chave privada é recalculável a qualquer momento.
-    try {
-      const swept = await sweepInvoiceFunds(invoice.reference);
-      if (swept) await service.from("invoices").update({ swept_at: new Date().toISOString(), sweep_signature: swept.signature }).eq("id", invoice.id);
-    } catch (sweepError) {
-      console.error("Falha ao varrer fundos da fatura", invoice.id, sweepError);
-    }
-    const { error: batchError } = await service.from("license_batches").update({ status: "active", starts_at: paidAt.toISOString(), expires_at: expiresAt.toISOString() }).eq("invoice_id", invoice.id).eq("status", "pending");
-    if (batchError) throw batchError;
-    const { data: activeBatches } = await service.from("license_batches").select("quantity, expires_at").eq("organization_id", organizationId).eq("status", "active").gt("expires_at", paidAt.toISOString());
-    const licensedMachines = (activeBatches ?? []).reduce((sum, batch) => sum + Number(batch.quantity), 0);
-    const latestExpiry = (activeBatches ?? []).reduce<string | null>((latest, batch) => !latest || batch.expires_at > latest ? batch.expires_at : latest, null);
-    await service.from("subscriptions").update({ status: "active", licensed_machines: licensedMachines, current_period_end: latestExpiry }).eq("organization_id", organizationId);
-    await recordAffiliateCommissionForInvoice(service, invoice.id);
-    revalidatePath("/billing"); revalidatePath("/farms");
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Não foi possível consultar a rede Solana.";
-    redirect(`/billing?invoice=${invoice.id}&error=${encodeURIComponent(message)}`);
+    message = error instanceof Error ? error.message : "Não foi possível consultar o BitCart.";
   }
+  if (message) redirect(`/billing?invoice=${invoice.id}&error=${encodeURIComponent(message)}`);
   redirect("/billing?payment=confirmed");
 }
