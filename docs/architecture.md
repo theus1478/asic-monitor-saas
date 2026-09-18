@@ -35,9 +35,9 @@ aplicação (novo `apps/web/Dockerfile`) para a mesma VPS, com domínio próprio
 (`monitorasic.club` para o app, `db.monitorasic.club` para o Supabase) atrás
 de Traefik com certificados Let's Encrypt reais. Detalhes operacionais
 (variáveis de ambiente, cron jobs, DNS, pendências de auto-deploy) em
-`docs/configuration.md`. Vercel e o projeto Supabase Cloud antigo continuam
-existindo como rede de segurança, sem receber tráfego, até o
-descomissionamento.
+`docs/configuration.md`. O projeto Supabase Cloud antigo e o projeto Vercel
+foram pausados (não apagados) em 2026-09-18 — como retomar e o que ficou só
+no banco antigo estão em "Descomissionamento" no mesmo documento.
 
 ## Entidades
 

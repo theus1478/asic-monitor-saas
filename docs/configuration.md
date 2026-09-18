@@ -4,11 +4,9 @@ Este documento registra **quais** credenciais o ASIC Monitor SaaS usa e onde con
 
 > **2026-09-18: saída da Vercel e do Supabase Cloud.** A aplicação e o banco
 > agora rodam self-hosted numa VPS própria (ver "Infraestrutura self-hosted
-> (VPS)" abaixo). Vercel e o projeto `asicmonitor` no Supabase Cloud
-> continuam existindo, mas **não recebem mais tráfego** desde que o DNS de
-> `monitorasic.club` passou a apontar para a VPS — ficam só como rede de
-> segurança até a operação nova se provar estável, e devem ser
-> desligados/despromovidos depois disso (ver "Descomissionamento" ao final).
+> (VPS)" abaixo). O projeto `asicmonitor` no Supabase Cloud e o projeto
+> `asic-monitor-saas-vercel` na Vercel foram **pausados** (não apagados) na
+> mesma data — ver "Descomissionamento" ao final para como retomá-los.
 
 ## Supabase (self-hosted na VPS)
 
@@ -107,12 +105,32 @@ virou `crontab` do usuário `root`, chamando as mesmas rotas com
 0 7 * * * curl -sS -m 30 -H "Authorization: Bearer <CRON_SECRET>" https://monitorasic.club/api/cron/asic-health-sweep >> /var/log/asic-monitor-cron.log 2>&1
 ```
 
-### Descomissionamento (pendente)
+### Descomissionamento (Vercel e Supabase Cloud pausados em 2026-09-18)
 
-Vercel e o projeto Supabase Cloud antigo (`asicmonitor`) devem ser
-desligados/rebaixados **somente depois de alguns dias de operação estável**
-na VPS — sem pressa, e não unilateralmente. Enquanto isso, ambos continuam
-existindo como rede de segurança, mas não recebem tráfego real.
+Antes de desligar, foi conferido no banco antigo que nada mais enviava
+telemetria para lá (0 leituras nos 5 minutos anteriores). Um coletor
+(Farm Favela 00) ainda estava com a URL antiga e só foi migrado depois de
+apontado para `https://monitorasic.club/api/agent/metrics` — **um coletor com
+`api_url` antiga fica sem monitoramento em silêncio**, sem erro visível no
+painel novo.
+
+- **Supabase Cloud (`asicmonitor`, ref `dsycgqvtvaxhfjxmsatw`):** projeto
+  **pausado** (Settings → General → Pause project). Os dados ficam guardados;
+  pode ser retomado por até 1 ano (depois só restam os backups para download).
+  Contém o histórico de telemetria da Farm Favela entre 03:26 e ~20:40 UTC de
+  2026-09-18 e qualquer cadastro/licença criado só lá depois do dump inicial
+  (o resync final foi dispensado) — se precisar, retome o projeto e copie o
+  que faltar. A organização tem um segundo projeto (`theus1478's Project`)
+  que não faz parte deste app e não foi tocado.
+- **Vercel (`asic-monitor-saas-vercel`):** projeto **pausado** (Settings →
+  General → Pause Project): a URL `*.vercel.app` responde 503
+  `DEPLOYMENT_PAUSED`; retoma sem redeploy. Ainda liga o repositório
+  `theus1478/asic-monitor-saas` e continua gerando *preview deployments* a cada
+  push (apontam para o Supabase pausado, então não funcionam) — desconectar o
+  Git é opcional. O outro projeto (`asic-monitor`, sem Git) já não tinha
+  deploy servindo (404).
+- Só depois de um período de operação estável na VPS faz sentido **apagar**
+  os dois projetos (irreversível).
 
 ## Agente local da fazenda
 
