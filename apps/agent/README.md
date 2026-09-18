@@ -49,7 +49,7 @@ regenerar) o executável:
 ```powershell
 python -m pip install --user pyinstaller -r apps/agent/requirements.txt
 cd apps/agent/src
-python -m PyInstaller --onefile --windowed --noupx --name ASICMonitorAgent --clean gui_app.py
+python -m PyInstaller --onefile --windowed --noupx --name ASICMonitorAgent --collect-submodules websockets --clean gui_app.py
 ```
 
 O resultado fica em `dist/ASICMonitorAgent.exe` — copie para

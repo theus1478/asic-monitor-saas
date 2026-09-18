@@ -132,6 +132,43 @@ painel novo.
 - Só depois de um período de operação estável na VPS faz sentido **apagar**
   os dois projetos (irreversível).
 
+### Acesso remoto às máquinas (relay + certificado curinga)
+
+- **Serviço `relay`** (EasyPanel, projeto `asic-monitor`; GitHub
+  `theus1478/asic-monitor-saas`, caminho `/apps/relay`, Dockerfile). Variáveis:
+  `SUPABASE_URL` (`https://db.monitorasic.club`), `SUPABASE_SERVICE_ROLE_KEY`,
+  `AGENT_TOKEN_PEPPER` (o mesmo do `web`), `REMOTE_ACCESS_SECRET`,
+  `REMOTE_BASE_DOMAIN=remote.monitorasic.club`, `PORT=8080`. Domínio
+  `relay.monitorasic.club` (Let's Encrypt comum) → porta 8080; é o endereço
+  `wss://relay.monitorasic.club/agent` que o coletor usa. `GET /__health` → `ok`.
+- **Serviço `web`**: `REMOTE_ACCESS_SECRET` (**igual** ao do relay),
+  `REMOTE_BASE_DOMAIN`, `REMOTE_RELAY_URL` (padrão
+  `wss://relay.monitorasic.club/agent`). Sem `REMOTE_ACCESS_SECRET` o botão
+  "Acessar máquina" responde erro de configuração.
+- **DNS (Dynadot)**: `relay` A e `*.remote` A → `2.25.234.75`. O DNS foi alterado
+  pela API (`set_dns2` reenviando **todos** os registros existentes — esse
+  comando substitui o conjunto inteiro; backup do estado anterior em
+  `/root/secrets/dns-backup.json` na VPS).
+- **Certificado curinga** `*.remote.monitorasic.club` (só sai por DNS-01):
+  emitido com `goacme/lego` (provedor `dynadot`, container avulso, dados em
+  `/root/lego`; a espera de propagação precisa ser fixa,
+  `--dns.propagation.wait 240s`, porque a checagem ativa passa antes de todos os
+  servidores da Dynadot terem o TXT e a validação secundária do Let's Encrypt
+  falha). Arquivos em `/etc/easypanel/traefik/certs/remote.{crt,key}`; rota em
+  `/etc/easypanel/traefik/config/remote.yaml` (`tls.certificates` + roteador
+  `HostRegexp(^m-<uuid>\.remote\.monitorasic\.club$)` → `http://asic-monitor_relay:8080`).
+  A chave da API Dynadot fica **só** em `/root/secrets/dynadot.env` (modo 600,
+  `DYNADOT_API_KEY`/`DYNADOT_API_SECRET`); se as chaves forem regeneradas,
+  atualize esse arquivo.
+- **Renovação**: `/root/renew-remote-cert.sh` (cron semanal, segunda 04:17;
+  log em `/var/log/renew-remote-cert.log`). O `lego run` só renova quando falta
+  pouco para vencer; ao trocar o certificado o script recopia os arquivos e
+  reescreve `remote.yaml` para o Traefik recarregar. O certificado atual vence em
+  2026-12-17.
+- **Migration `0022_remote_access.sql`** deve ser aplicada **antes** de subir o
+  código que a usa (`/api/agent/config` passou a ler `farms.remote_access_enabled`
+  e `miners.web_port`).
+
 ## Agente local da fazenda
 
 Cada cliente receberá um arquivo `config.json` baseado em `apps/agent/config.example.json`.

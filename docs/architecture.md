@@ -407,6 +407,56 @@ num plano com throughput de banco limitado, isso rodava em cada carregamento
 da Visão Geral, de todo cliente. Ver `docs/configuration.md` pra contexto
 sobre a capacidade atual do banco.
 
+## Acesso remoto à tela da ASIC (`apps/relay` + `apps/agent/src/tunnel.py`)
+
+O cliente abre a tela original da máquina (`http://192.168.x.x`) de fora da
+rede da fazenda, sem abrir porta no roteador nem VPN. O coletor (0.11.0+) abre
+uma conexão **de saída** (WebSocket) com o relay e atende as requisições HTTP
+do navegador.
+
+```
+navegador ──HTTPS──▶ m-<id da máquina>.remote.monitorasic.club ──▶ Traefik ──▶ relay (Node)
+                                                                                 ▲ wss://relay.monitorasic.club/agent
+coletor (fazenda) ◀──────────────────────────────────────────────────────────────┘
+   └─ httpx ─▶ http://<IP da ASIC>:<web_port>   (só IPs cadastrados na própria fazenda)
+```
+
+- **Um subdomínio por máquina**: a tela da ASIC usa caminhos absolutos
+  (`/cgi-bin/...`), então proxy por prefixo de caminho quebra.
+- **Fluxo de acesso**: botão "Acessar máquina" no modal da máquina →
+  server action `createRemoteAccess` (`app/farms/[id]/remote-access.ts`) confere
+  login + papel (`owner`/`admin`/`operator`) + fazenda com acesso ligado +
+  máquina licenciada, grava em `remote_access_logs` e devolve
+  `https://m-<id>.remote.monitorasic.club/?t=<token>`. O token é HMAC
+  (`REMOTE_ACCESS_SECRET`, `lib/remote-access.ts`), vale 5 min e é de uso único
+  (nonce guardado na memória do relay). O relay troca o token por um cookie
+  `__ra` (HttpOnly, Secure, SameSite=Lax, 1 h, só daquele subdomínio) e
+  redireciona para `/`. O cookie `__ra` nunca é repassado à ASIC.
+- **Padrão desligado**: `farms.remote_access_enabled` (interruptor no painel
+  Telemetria). O relay relê o estado a cada 60 s; desligar derruba o acesso em
+  até 1 min e o coletor fecha o túnel (`/api/agent/config` devolve
+  `remote_access_enabled` e `remote_relay_url`).
+- **Autenticação do coletor no relay**: mesmo token do agente
+  (`sha256(token + AGENT_TOKEN_PEPPER)` em `agents.token_hash`, consultado via
+  service role). O relay só encaminha requisições da máquina para o coletor da
+  fazenda dona dela.
+- **Defesa contra SSRF na rede do cliente** (`tunnel.py`): o destino nunca vem do
+  quadro; o coletor localiza a máquina pelo `miner_id` na própria lista
+  (`/api/agent/config`), usa o IP (literal) e a `web_port` cadastrados, só
+  métodos HTTP comuns, caminho sem espaços/controle, sem seguir redirecionamentos,
+  `Accept-Encoding: identity`, `Host/Origin/Referer` reescritos para o IP da ASIC.
+- **Limites**: corpo/resposta ≤ 10 MB, timeout 30 s no relay (25 s no coletor),
+  ≤ 8 requisições simultâneas por máquina, ping/pong a cada 20 s.
+  `Location` volta reescrito para o subdomínio; `Set-Cookie` perde o `Domain`.
+- **Limitações da v1**: WebSocket/SSE dentro da tela da ASIC (alguns firmwares,
+  ex.: logs ao vivo do VNish) responde 501; upload de firmware > 10 MB é
+  bloqueado; o login da própria ASIC continua valendo (recomendar trocar a senha
+  de fábrica — o painel avisa). `miners.web_port` (padrão 80) ainda não tem tela
+  de edição.
+- **Testes**: `apps/relay/test/e2e.mjs` (`npm test` em `apps/relay`; com
+  `E2E_PY_AGENT=python` usa o coletor Python real no lugar do simulador) e
+  `apps/agent/tests/test_tunnel.py`.
+
 ## Fases
 
 1. Contas, organizações, fazendas, serviço coletor e ingestão de métricas.
