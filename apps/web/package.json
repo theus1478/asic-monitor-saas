@@ -9,8 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.99.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.49.0",
+    "bs58": "^6.0.0",
     "geist": "^1.7.0",
     "next": "^16.0.0",
     "next-intl": "^4.14.5",
