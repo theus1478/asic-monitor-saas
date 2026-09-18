@@ -47,14 +47,19 @@ export default async function DashboardPage() {
   const minerList = miners ?? [];
   const minerIds = minerList.map((m) => m.id);
 
+  // Só precisa dos últimos minutos: checar "fresco" (90s) e montar as ~20
+  // amostras do gráfico. Antes buscava até 10.000 linhas dos últimos 30
+  // dias em toda visita — o consumo (kWh) tinha o mesmo problema e agora
+  // vem do rollup diário (miner_energy_daily) abaixo, não daqui.
+  const RECENT_METRICS_WINDOW_MS = 20 * 60_000;
   const { data: recentMetrics } = minerIds.length
     ? await supabase
         .from("miner_metrics")
         .select("miner_id, online, hashrate_ths, power_w, observed_at")
         .in("miner_id", minerIds)
-        .gte("observed_at", new Date(currentTimeMs() - 30 * 86400_000).toISOString())
+        .gte("observed_at", new Date(currentTimeMs() - RECENT_METRICS_WINDOW_MS).toISOString())
         .order("observed_at", { ascending: false })
-        .limit(10000)
+        .limit(Math.max(500, minerIds.length * 50))
     : { data: [] as Metric[] };
   const metrics = recentMetrics ?? [];
 
@@ -73,19 +78,16 @@ export default async function DashboardPage() {
   const onlineMachines = minerList.filter((m) => isMinerOnline(m.id)).length;
   const availabilityPct = activeMachines > 0 ? Math.round((onlineMachines / activeMachines) * 1000) / 10 : 0;
   const totalHashrateThs = minerList.reduce((sum, m) => sum + (isMinerOnline(m.id) ? latestByMiner.get(m.id)?.hashrate_ths ?? 0 : 0), 0);
-  const energyByMiner = new Map<string, Metric[]>();
-  for (const metric of metrics) {
-    if (metric.online && metric.power_w != null) energyByMiner.set(metric.miner_id, [...(energyByMiner.get(metric.miner_id) ?? []), metric]);
-  }
-  let recordedKwh = 0;
-  for (const minerMetrics of energyByMiner.values()) {
-    minerMetrics.sort((a, b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime());
-    for (let index = 1; index < minerMetrics.length; index += 1) {
-      const previous = minerMetrics[index - 1], current = minerMetrics[index];
-      const hours = Math.min(300_000, new Date(current.observed_at).getTime() - new Date(previous.observed_at).getTime()) / 3_600_000;
-      recordedKwh += (((previous.power_w ?? 0) + (current.power_w ?? 0)) / 2 / 1000) * Math.max(0, hours);
-    }
-  }
+
+  // Consumo dos últimos 30 dias: soma o rollup diário já calculado
+  // incrementalmente na ingestão (POST /api/agent/metrics, ver
+  // supabase/migrations/0020_miner_energy_daily.sql) — no máximo
+  // minerIds.length × 30 linhas pequenas, em vez de reintegrar telemetria
+  // bruta a cada visita.
+  const { data: energyRows } = minerIds.length
+    ? await supabase.from("miner_energy_daily").select("kwh").in("miner_id", minerIds).gte("day", new Date(currentTimeMs() - 30 * 86400_000).toISOString().slice(0, 10))
+    : { data: [] as { kwh: number }[] };
+  const recordedKwh = (energyRows ?? []).reduce((sum, r) => sum + Number(r.kwh), 0);
 
   const farmCards = farmList.map((farm) => {
     const farmMiners = minerList.filter((m) => m.farm_id === farm.id);

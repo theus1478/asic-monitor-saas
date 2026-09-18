@@ -71,20 +71,40 @@ export async function POST(request: Request) {
   if (rows.length > 0) {
     // Le o estado anterior de cada maquina ANTES de inserir a leitura nova -
     // o motor de regras precisa comparar "antes vs agora" (reboot, hashboard
-    // que sumiu etc.), entao a ordem importa aqui.
+    // que sumiu etc.), entao a ordem importa aqui. observed_at/power_w
+    // tambem alimentam o rollup de energia (increment_miner_energy) logo
+    // abaixo - mesma consulta, sem query extra.
     const rowMinerIds = [...new Set(rows.map((r) => r.miner_id))] as string[];
     const { data: previousRows } = await supabase
       .from("miner_metrics")
-      .select("miner_id, online, hashrate_ths, temperature_c, payload")
+      .select("miner_id, online, hashrate_ths, temperature_c, power_w, observed_at, payload")
       .in("miner_id", rowMinerIds)
       .order("observed_at", { ascending: false })
       .limit(rowMinerIds.length * 2);
-    const previousByMiner = new Map<string, { online: boolean; hashrate_ths: number | null; temperature_c: number | null; payload: Record<string, unknown> } | null>();
+    const previousByMiner = new Map<string, { online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string; payload: Record<string, unknown> } | null>();
     for (const row of previousRows ?? []) {
-      if (!previousByMiner.has(row.miner_id)) previousByMiner.set(row.miner_id, row as { online: boolean; hashrate_ths: number | null; temperature_c: number | null; payload: Record<string, unknown> });
+      if (!previousByMiner.has(row.miner_id)) previousByMiner.set(row.miner_id, row as { online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string; payload: Record<string, unknown> });
     }
 
     await supabase.from("miner_metrics").insert(rows);
+
+    // Rollup diario de energia (miner_energy_daily) - integra o trapezio
+    // entre a leitura anterior e esta, em vez do dashboard reconstruir tudo
+    // varrendo telemetria bruta a cada visita. Gap grande (agente offline por
+    // horas) e limitado a 5min, mesmo teto ja usado no calculo antigo do
+    // dashboard, pra nao inflar o consumo com um buraco na coleta.
+    const energyUpdates = rows.flatMap((row) => {
+      const previous = previousByMiner.get(row.miner_id as string);
+      if (!previous || row.power_w == null || previous.power_w == null) return [];
+      const elapsedMs = new Date(row.observed_at).getTime() - new Date(previous.observed_at).getTime();
+      if (elapsedMs <= 0) return [];
+      const hours = Math.min(300_000, elapsedMs) / 3_600_000;
+      const kwh = ((previous.power_w + row.power_w) / 2 / 1000) * hours;
+      if (kwh <= 0) return [];
+      const day = row.observed_at.slice(0, 10);
+      return [supabase.rpc("increment_miner_energy", { p_miner_id: row.miner_id, p_day: day, p_kwh: kwh, p_last_observed_at: row.observed_at })];
+    });
+    if (energyUpdates.length) await Promise.all(energyUpdates);
 
     if (organizationId) {
       // Falha aqui nunca deve derrubar a resposta pro coletor - a telemetria

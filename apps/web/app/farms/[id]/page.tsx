@@ -11,7 +11,8 @@ import { deleteMiner, rebootMiner, stopMiningOnMiner, updateMinerDevfee } from "
 import type { PoolCommandSummary } from "./pool-control";
 
 type Miner = { id: string; name: string; ip: string; protocol_port: number; type: string; enabled: boolean; created_at: string; devfee_pct: number | null };
-type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string; payload: Record<string, unknown> | null };
+type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string };
+type PayloadRow = { miner_id: string; payload: Record<string, unknown> | null };
 const FRESH_METRIC_MS = 90_000;
 
 export default async function FarmDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ miner?: string }> }) {
@@ -39,14 +40,25 @@ export default async function FarmDetailPage({ params, searchParams }: { params:
     : { data: [] as { id: string; created_at: string }[] };
   const licensedById = markLicensed(orgMiners ?? [], licensedCount);
   const ids = minerList.map((miner) => miner.id);
-  const [{ data }, { data: incidentData }, { data: eventData }] = await Promise.all([
-    ids.length ? supabase.from("miner_metrics").select("miner_id, online, hashrate_ths, temperature_c, power_w, observed_at, payload").in("miner_id", ids).order("observed_at", { ascending: false }).limit(Math.max(720, ids.length * 120)) : Promise.resolve({ data: [] }),
+  const [{ data }, { data: payloadData }, { data: incidentData }, { data: eventData }] = await Promise.all([
+    // Histórico pro gráfico: só os campos numéricos, sem o payload bruto
+    // (pode ser um blob grande por linha — Whatsminer LuCI, por exemplo — e
+    // aqui não é lido, só a leitura mais recente de cada máquina usa isso).
+    ids.length ? supabase.from("miner_metrics").select("miner_id, online, hashrate_ths, temperature_c, power_w, observed_at").in("miner_id", ids).order("observed_at", { ascending: false }).limit(Math.max(720, ids.length * 120)) : Promise.resolve({ data: [] }),
+    // Payload bruto: só a leitura mais recente por máquina (usada no modal
+    // de detalhe) — consulta separada e pequena, bem mais barata que carregar
+    // o payload de centenas de linhas históricas que nunca são lidas.
+    ids.length ? supabase.from("miner_metrics").select("miner_id, payload").in("miner_id", ids).order("observed_at", { ascending: false }).limit(ids.length * 2) : Promise.resolve({ data: [] }),
     ids.length ? supabase.from("asic_incidents").select("miner_id, rule_key, severity, title").in("miner_id", ids).in("status", ["active", "acknowledged"]) : Promise.resolve({ data: [] as { miner_id: string; rule_key: string; severity: string; title: string }[] }),
     ids.length ? supabase.from("asic_events").select("id, miner_id, observed_at, level, category, message").in("miner_id", ids).order("observed_at", { ascending: false }).limit(Math.max(300, ids.length * 40)) : Promise.resolve({ data: [] as EventRow[] }),
   ]);
   const metrics = (data ?? []) as Metric[];
   const latest = new Map<string, Metric>();
   metrics.forEach((metric) => { if (!latest.has(metric.miner_id)) latest.set(metric.miner_id, metric); });
+  const payloadByMiner = new Map<string, Record<string, unknown> | null>();
+  for (const row of (payloadData ?? []) as PayloadRow[]) {
+    if (!payloadByMiner.has(row.miner_id)) payloadByMiner.set(row.miner_id, row.payload);
+  }
   const now = currentTimeMs();
   const incidentsByMiner = new Map<string, IncidentSummary[]>();
   for (const row of incidentData ?? []) {
@@ -60,7 +72,7 @@ export default async function FarmDetailPage({ params, searchParams }: { params:
     const fresh = Boolean(metric && now - new Date(metric.observed_at).getTime() <= FRESH_METRIC_MS);
     const incidents = licensed ? incidentsByMiner.get(miner.id) ?? [] : [];
     const health: MonitorMiner["health"] = !fresh || !metric?.online ? "offline" : incidents.some((i) => i.severity === "critical") ? "critical" : incidents.some((i) => i.severity === "warning") ? "warning" : "ok";
-    return { ...(licensed ? metric?.payload ?? {} : {}), id: miner.id, name: miner.name, ip: miner.ip, port: miner.protocol_port, type: miner.type, devfee_pct: miner.devfee_pct != null ? Number(miner.devfee_pct) : null, licensed, online: Boolean(metric?.online && fresh), observed_at: metric?.observed_at ?? null, hashrate_ths: licensed ? metric?.hashrate_ths ?? null : null, temp_c: licensed ? metric?.temperature_c ?? null : null, power_w: licensed ? metric?.power_w ?? null : null, health, incidents } as MonitorMiner;
+    return { ...(licensed ? payloadByMiner.get(miner.id) ?? {} : {}), id: miner.id, name: miner.name, ip: miner.ip, port: miner.protocol_port, type: miner.type, devfee_pct: miner.devfee_pct != null ? Number(miner.devfee_pct) : null, licensed, online: Boolean(metric?.online && fresh), observed_at: metric?.observed_at ?? null, hashrate_ths: licensed ? metric?.hashrate_ths ?? null : null, temp_c: licensed ? metric?.temperature_c ?? null : null, power_w: licensed ? metric?.power_w ?? null : null, health, incidents } as MonitorMiner;
   });
   const buckets = new Map<string, { hashrate: number; power: number }>();
   [...metrics].reverse().filter((metric) => licensedById.get(metric.miner_id)).forEach((metric) => {
