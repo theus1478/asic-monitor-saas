@@ -18,7 +18,12 @@ aceita depois de validar o formato do IP) ou escaneando uma faixa de IP (você
 escolhe início e fim; confirma o protocolo real de cada dispositivo, não só a
 porta aberta). Cada máquina adicionada ou removida sincroniza na hora com o
 painel (`POST`/`DELETE /api/agent/config`); o app também some com qualquer
-máquina cadastrada por lá, então os dois lados ficam sempre iguais.
+máquina cadastrada por lá, então os dois lados ficam sempre iguais. Remoção
+em lote: cada linha tem uma caixinha de marcar (independente da seleção
+normal da lista), com botões "Remover marcadas" e "Remover todas" — o
+`DELETE /api/agent/config` aceita uma lista de IPs (`ips`) além do `ip`
+único de antes, então a remoção em massa vira uma chamada só. Exige a versão
+0.10.0 ou posterior do executável.
 
 Se registra na pasta *Inicializar* do Windows (`shell:startup`) para abrir
 sozinho, minimizado, a cada login do Windows — combinado com o login
