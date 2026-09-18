@@ -123,3 +123,15 @@ code,.metric,.farm-stat b,.calculator-result strong,.purchase-total strong{font-
 .lm-logout.lm-hl-solid:hover{background:#6ef0c1;border-color:#6ef0c1}
 .farm-card-link{color:inherit;cursor:pointer}
 .farm-card-link:hover b{color:var(--accent)}
+/* Acesso remoto às máquinas (painel Telemetria + botão no modal) */
+.lm-btn.lm-hl-solid{background:#3ddca0;border-color:#3ddca0;color:#04120c;font-weight:700}
+.lm-btn.lm-hl-solid:hover:not(:disabled){background:#6ef0c1;border-color:#6ef0c1}
+.lm-remote-panel{background:var(--lm-surface);border:1px solid var(--lm-line);border-radius:12px;padding:16px;margin-bottom:14px}
+.lm-remote-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.lm-remote-head h3{margin:0 0 4px;font-size:15px}
+.lm-remote-head p,.lm-remote-state,.lm-remote-warning{margin:0;color:var(--lm-muted);font-size:13px;line-height:1.5}
+.lm-remote-state{margin-top:10px;color:var(--lm-text)}
+.lm-remote-warning{margin-top:8px;color:var(--lm-amber)}
+.lm-ok{color:var(--lm-teal);font-size:13px;margin:8px 0 0}
+.lm-err{color:#ff7b7b;font-size:13px}
+@media(max-width:640px){.lm-remote-head{flex-direction:column}}

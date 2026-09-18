@@ -9,6 +9,7 @@ import { CreateAgentPanel } from "../create-agent-panel";
 import { LegacyMonitor, type EventRow, type IncidentSummary, type MonitorMiner } from "./legacy-monitor";
 import { deleteMiner, rebootMiner, stopMiningOnMiner, updateMinerDevfee } from "./miner-actions";
 import type { PoolCommandSummary } from "./pool-control";
+import { createRemoteAccess, setFarmRemoteAccess } from "./remote-access";
 
 type Miner = { id: string; name: string; ip: string; protocol_port: number; type: string; enabled: boolean; created_at: string; devfee_pct: number | null };
 type Metric = { miner_id: string; online: boolean; hashrate_ths: number | null; temperature_c: number | null; power_w: number | null; observed_at: string };
@@ -19,8 +20,11 @@ export default async function FarmDetailPage({ params, searchParams }: { params:
   const { id } = await params;
   const { miner: initialMinerId } = await searchParams;
   const supabase = await createClient();
-  const { data: farm } = await supabase.from("farms").select("id, name, timezone, organization_id").eq("id", id).maybeSingle();
+  const { data: farm } = await supabase.from("farms").select("id, name, timezone, organization_id, remote_access_enabled").eq("id", id).maybeSingle();
   if (!farm) notFound();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: membership } = user ? await supabase.from("memberships").select("role").eq("user_id", user.id).eq("organization_id", farm.organization_id).maybeSingle() : { data: null };
+  const canUseRemote = Boolean(membership && ["owner", "admin", "operator"].includes(membership.role));
 
   // Varredura preguiçosa de offline - quem entra direto na fazenda (sem passar
   // pela Visão Geral primeiro) também precisa disparar a checagem.
@@ -83,5 +87,5 @@ export default async function FarmDetailPage({ params, searchParams }: { params:
   });
   const history = [...buckets].map(([observedAt, values]) => ({ observedAt, ...values })).slice(-144);
   const agentList = (agents ?? []).map((agent) => ({ ...agent, is_online: Boolean(agent.last_seen_at && now - new Date(agent.last_seen_at).getTime() <= FRESH_METRIC_MS) }));
-  return <LegacyMonitor farmId={farm.id} farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} events={events} initialMinerId={initialMinerId ?? null} poolCommands={(poolCommands ?? []) as PoolCommandSummary[]} addMinerAction={addMiner.bind(null, id)} deleteMinerAction={deleteMiner.bind(null, id)} rebootMinerAction={rebootMiner.bind(null, id)} stopMiningAction={stopMiningOnMiner.bind(null, id)} updateDevfeeAction={updateMinerDevfee.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
+  return <LegacyMonitor farmId={farm.id} farmName={farm.name} timezone={farm.timezone} miners={monitorMiners} history={history} events={events} initialMinerId={initialMinerId ?? null} poolCommands={(poolCommands ?? []) as PoolCommandSummary[]} addMinerAction={addMiner.bind(null, id)} deleteMinerAction={deleteMiner.bind(null, id)} rebootMinerAction={rebootMiner.bind(null, id)} stopMiningAction={stopMiningOnMiner.bind(null, id)} updateDevfeeAction={updateMinerDevfee.bind(null, id)} remoteAccess={{ enabled: Boolean(farm.remote_access_enabled), canUse: canUseRemote }} openRemoteAction={createRemoteAccess.bind(null, id)} setRemoteAccessAction={setFarmRemoteAccess.bind(null, id)} agentPanel={<CreateAgentPanel farmId={farm.id} agents={agentList} />} />;
 }

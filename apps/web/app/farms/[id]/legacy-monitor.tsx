@@ -5,6 +5,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { PoolCommandHistory, PoolModal, type PoolCommandSummary } from "./pool-control";
+import type { RemoteResult, RemoteToggleResult } from "./remote-access";
+import { RemoteAccessPanel } from "./remote-access-panel";
 
 export type Board = { name?: string; chip_temp_c?: number | null; pcb_temp_c?: number | null; hashrate_ths?: number | null };
 export type IncidentSummary = { ruleKey: string; severity: "info" | "warning" | "critical"; title: string };
@@ -113,7 +115,7 @@ function Result({ css, label, value, sub }: { css: string; label: string; value:
 
 type RebootResult = { ok: boolean; message: string };
 
-export function LegacyMonitor({ farmId, farmName, timezone, miners, history, events, initialMinerId, poolCommands, addMinerAction, deleteMinerAction, rebootMinerAction, stopMiningAction, updateDevfeeAction, agentPanel }: { farmId: string; farmName: string; timezone: string | null; miners: MonitorMiner[]; history: HistoryPoint[]; events: EventRow[]; initialMinerId: string | null; poolCommands: PoolCommandSummary[]; addMinerAction: (formData: FormData) => void | Promise<void>; deleteMinerAction: (minerId: string) => void | Promise<void>; rebootMinerAction: (minerId: string) => Promise<RebootResult>; stopMiningAction: (minerId: string) => Promise<RebootResult>; updateDevfeeAction: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult>; agentPanel: ReactNode }) {
+export function LegacyMonitor({ farmId, farmName, timezone, miners, history, events, initialMinerId, poolCommands, addMinerAction, deleteMinerAction, rebootMinerAction, stopMiningAction, updateDevfeeAction, agentPanel, remoteAccess, openRemoteAction, setRemoteAccessAction }: { farmId: string; farmName: string; timezone: string | null; miners: MonitorMiner[]; history: HistoryPoint[]; events: EventRow[]; initialMinerId: string | null; poolCommands: PoolCommandSummary[]; addMinerAction: (formData: FormData) => void | Promise<void>; deleteMinerAction: (minerId: string) => void | Promise<void>; rebootMinerAction: (minerId: string) => Promise<RebootResult>; stopMiningAction: (minerId: string) => Promise<RebootResult>; updateDevfeeAction: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult>; agentPanel: ReactNode; remoteAccess: { enabled: boolean; canUse: boolean }; openRemoteAction: (minerId: string) => Promise<RemoteResult>; setRemoteAccessAction: (enabled: boolean) => Promise<RemoteToggleResult> }) {
   const t = useTranslations("farmDetail");
   const router = useRouter(); const [pending, startTransition] = useTransition();
   const [view, setView] = useState<View>("table"), [range, setRange] = useState(30), [query, setQuery] = useState(""), [type, setType] = useState(""), [status, setStatus] = useState(""), [sortKey, setSortKey] = useState<SortKey>("name"), [direction, setDirection] = useState(1), [selected, setSelected] = useState<MonitorMiner | null>(null), [addOpen, setAddOpen] = useState(false), [setup, setSetup] = useState(false), [poolOpen, setPoolOpen] = useState(false), [poolMinerId, setPoolMinerId] = useState<string | null>(null);
@@ -133,9 +135,9 @@ export function LegacyMonitor({ farmId, farmName, timezone, miners, history, eve
     <main className="lm-wrap"><div className="lm-farm"><b>{farmName}</b>{timezone && <span>{timezone}</span>}</div><section className="lm-kpis"><Kpi css="lm-k-hash" label={t("totalHashrate")} value={totalHash.toFixed(2)} unit="TH/s" /><Kpi css="lm-k-pow" label={t("totalConsumption")} value={(totalPower / 1000).toFixed(2)} unit="kW" /><Kpi css="lm-k-eff" label={t("efficiency")} value={totalHash ? (totalPower / totalHash).toFixed(1) : "—"} unit="J/TH" /><Kpi css="lm-k-on" label={t("online")} value={`${online.length}`} unit={`/ ${miners.length}`} /><Kpi css="lm-k-off" label={t("offline")} value={`${miners.length - online.length}`} /></section>
       <section className="lm-charts"><div className="lm-panel"><div className="lm-panel-head"><h2>{t("hashrateChartTitle")}</h2><div className="lm-ranges">{RANGES.map((minutes) => <button key={minutes} className={range === minutes ? "active" : ""} onClick={() => setRange(minutes)}>{minutes < 60 ? `${minutes}m` : minutes < 1440 ? `${minutes / 60}h` : "24h"}</button>)}</div></div><LineChart values={chart.map((point) => point.hashrate)} color="#3ddca0" /></div><div className="lm-panel"><div className="lm-panel-head"><h2>{t("consumptionChartTitle")}</h2></div><LineChart values={chart.map((point) => point.power / 1000)} color="#5c9cff" /></div></section>
       {view === "calc" ? <Calculator miners={miners} /> : <><div className="lm-bar"><input type="search" placeholder={t("filterPlaceholder")} value={query} onChange={(e) => setQuery(e.target.value)} /><select value={type} onChange={(e) => setType(e.target.value)}><option value="">{t("allTypes")}</option><option value="antminer">Antminer</option><option value="whatsminer">Whatsminer</option><option value="avalon">Avalon</option></select><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">{t("onlineAndOffline")}</option><option value="on">{t("onlyOnline")}</option><option value="off">{t("onlyOffline")}</option></select><span /><button className="lm-btn lm-pool-button" onClick={() => { setPoolMinerId(null); setPoolOpen(true); }}>⇄ {t("changePool")}</button><button className="lm-btn lm-primary" onClick={() => setAddOpen(true)}>+ {t("addMachine")}</button><button className="lm-btn" onClick={() => startTransition(() => router.refresh())}>↻ {t("refresh")}</button></div>{view === "table" ? <div className="lm-tablewrap"><div className="lm-scroll"><table><thead><tr>{th(t("colMachine"), "name")}{th(t("colIp"), "ip")}{th(t("colType"), "type")}{th("TH/s", "hashrate_ths")}{th(t("consumptionLabel"), "power_w")}{th(t("colHashboards"))}{th(t("colCooling"))}{th(t("colUptime"), "uptime_s")}{th(t("colShares"), "accepted")}{th(t("colRejected"), "rejected")}</tr></thead><tbody>{rows.length ? rows.map((miner) => <MinerRow key={miner.id} miner={miner} open={() => setSelected(miner)} />) : <tr><td colSpan={10} className="lm-empty">{t("noMachinesMatch")}</td></tr>}</tbody></table></div></div> : <div className="lm-cards">{rows.map((miner) => <MinerCard key={miner.id} miner={miner} open={() => setSelected(miner)} />)}</div>}</>}
-      {setup && <section className="lm-setup">{agentPanel}</section>}
+      {setup && <section className="lm-setup"><RemoteAccessPanel enabled={remoteAccess.enabled} canManage={remoteAccess.canUse} setEnabled={setRemoteAccessAction} />{agentPanel}</section>}
       <PoolCommandHistory commands={poolCommands} />
-    </main>{(selected || addOpen) && <Modal miner={selected} events={selected ? events.filter((e) => e.miner_id === selected.id) : []} close={() => { setSelected(null); setAddOpen(false); }} addAction={addMinerAction} changePool={(minerId) => { setSelected(null); setPoolMinerId(minerId); setPoolOpen(true); }} deleteMiner={removeMiner} rebootMiner={restartMiner} stopMining={stopMining} updateDevfee={updateDevfeeAction} />}
+    </main>{(selected || addOpen) && <Modal miner={selected} events={selected ? events.filter((e) => e.miner_id === selected.id) : []} close={() => { setSelected(null); setAddOpen(false); }} addAction={addMinerAction} changePool={(minerId) => { setSelected(null); setPoolMinerId(minerId); setPoolOpen(true); }} deleteMiner={removeMiner} rebootMiner={restartMiner} stopMining={stopMining} updateDevfee={updateDevfeeAction} remoteReady={remoteAccess.enabled && remoteAccess.canUse} openRemote={openRemoteAction} />}
     {poolOpen && <PoolModal key={poolMinerId ?? "batch"} farmId={farmId} miners={miners} initialMinerId={poolMinerId} onClose={() => setPoolOpen(false)} />}
   </div>;
 }
@@ -206,7 +208,7 @@ function EventsPanel({ events }: { events: EventRow[] }) {
   </div>;
 }
 
-function Modal({ miner, events, close, addAction, changePool, deleteMiner, rebootMiner, stopMining, updateDevfee }: { miner: MonitorMiner | null; events: EventRow[]; close: () => void; addAction: (formData: FormData) => void | Promise<void>; changePool: (minerId: string) => void; deleteMiner: (minerId: string) => void; rebootMiner: (minerId: string) => Promise<RebootResult>; stopMining: (minerId: string) => Promise<RebootResult>; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
+function Modal({ miner, events, close, addAction, changePool, deleteMiner, rebootMiner, stopMining, updateDevfee, remoteReady, openRemote }: { remoteReady: boolean; openRemote: (minerId: string) => Promise<RemoteResult>; miner: MonitorMiner | null; events: EventRow[]; close: () => void; addAction: (formData: FormData) => void | Promise<void>; changePool: (minerId: string) => void; deleteMiner: (minerId: string) => void; rebootMiner: (minerId: string) => Promise<RebootResult>; stopMining: (minerId: string) => Promise<RebootResult>; updateDevfee: (minerId: string, devfeePct: number | null) => Promise<DevfeeResult> }) {
   const t = useTranslations("farmDetail");
   const locale = useLocale();
   const [rebooting, setRebooting] = useState(false);
@@ -226,6 +228,19 @@ function Modal({ miner, events, close, addAction, changePool, deleteMiner, reboo
     const result = await stopMining(miner.id);
     setStopFeedback(result); setStopping(false);
   };
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteFeedback, setRemoteFeedback] = useState<string | null>(null);
+  const doOpenRemote = async () => {
+    if (!miner) return;
+    // A aba precisa ser aberta no clique (síncrono), senão o navegador bloqueia o pop-up depois do await.
+    const tab = window.open("about:blank", "_blank");
+    setRemoteBusy(true); setRemoteFeedback(null);
+    const result = await openRemote(miner.id);
+    setRemoteBusy(false);
+    if (result.ok) {
+      if (tab) { tab.opener = null; tab.location.href = result.url; } else window.location.assign(result.url);
+    } else { tab?.close(); setRemoteFeedback(result.message); }
+  };
   const doDelete = () => { if (miner && window.confirm(t("deleteMachineConfirm", { name: miner.name }))) deleteMiner(miner.id); };
   return <div className="lm-overlay" onMouseDown={(e) => e.target === e.currentTarget && close()}><div className="lm-modal"><button className="lm-close" onClick={close} aria-label={t("closeModal")}>×</button>
     {miner ? <>
@@ -241,6 +256,7 @@ function Modal({ miner, events, close, addAction, changePool, deleteMiner, reboo
             <h4>{t("eventsTitle")}</h4><EventsPanel events={events} />
             {rebootFeedback && <p className={`lm-command-feedback ${rebootFeedback.ok ? "ok" : "error"}`}>{rebootFeedback.message}</p>}
             {stopFeedback && <p className={`lm-command-feedback ${stopFeedback.ok ? "ok" : "error"}`}>{stopFeedback.message}</p>}
+            {remoteReady && <div className="lm-detail-actions"><button className="lm-btn lm-hl-solid" disabled={remoteBusy} onClick={doOpenRemote}>{remoteBusy ? t("remoteOpening") : `🌐 ${t("remoteOpenMachine")}`}</button>{remoteFeedback && <span className="lm-err" role="alert">{remoteFeedback}</span>}</div>}
             <div className="lm-detail-actions"><button className="lm-btn lm-pool-button" onClick={() => changePool(miner.id)}>⇄ {t("changePoolForMachine")}</button><button className="lm-btn" disabled={rebooting} onClick={doReboot}>{rebooting ? t("rebooting") : `⟲ ${t("rebootMachine")}`}</button><button className="lm-btn lm-danger" disabled={stopping} onClick={doStopMining}>{stopping ? t("stoppingMining") : `⏹ ${t("stopMining")}`}</button></div>
           </>}
       <div className="lm-detail-actions"><button className="lm-btn lm-danger" onClick={doDelete}>🗑 {t("deleteMachine")}</button></div>

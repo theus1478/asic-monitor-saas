@@ -27,8 +27,9 @@ from tkinter import messagebox, ttk
 import httpx
 
 from miners import apply_pool_config, poll_miner, reboot_miner, stop_mining_miner
+from tunnel import Tunnel
 
-AGENT_VERSION = "0.10.1"
+AGENT_VERSION = "0.11.0"
 STARTUP_DIR = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 STARTUP_LAUNCHER_NAME = "ASICMonitorAgent.bat"
 MINER_TYPES = ["antminer", "whatsminer", "avalon"]
@@ -299,6 +300,8 @@ class Collector:
         self.ui_events = ui_events
         self.config = config
         self.miners = miners
+        self.remote_enabled = False
+        self.remote_relay_url = ""
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._stop = threading.Event()
 
@@ -328,22 +331,46 @@ class Collector:
         commands_url = commands_url_from_api_url(self.config["api_url"])
         interval = 30
 
-        async with httpx.AsyncClient(timeout=15) as client:
-            while not self._stop.is_set():
-                steps = (
-                    lambda: self._sync_miners(client, config_url, headers),
-                    lambda: self._process_command(client, commands_url, headers),
-                    lambda: self._poll_and_report(client, self.config["api_url"], headers),
-                )
-                for step in steps:
-                    try:
-                        await step()
-                    except Exception as error:  # uma falha isolada não pode derrubar o ciclo de coleta
-                        self.ui_events.put({"type": "status", "message": f"Erro inesperado no ciclo: {error!r}"})
-                for _ in range(interval):
-                    if self._stop.is_set():
-                        break
-                    await asyncio.sleep(1)
+        # Acesso remoto: tarefa à parte; qualquer falha dela não afeta a telemetria.
+        tunnel = Tunnel(self._tunnel_state, lambda state, message: self.ui_events.put({"type": "tunnel", "state": state, "message": message}))
+        tunnel_task = asyncio.create_task(self._run_tunnel(tunnel))
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                while not self._stop.is_set():
+                    steps = (
+                        lambda: self._sync_miners(client, config_url, headers),
+                        lambda: self._process_command(client, commands_url, headers),
+                        lambda: self._poll_and_report(client, self.config["api_url"], headers),
+                    )
+                    for step in steps:
+                        try:
+                            await step()
+                        except Exception as error:  # uma falha isolada não pode derrubar o ciclo de coleta
+                            self.ui_events.put({"type": "status", "message": f"Erro inesperado no ciclo: {error!r}"})
+                    for _ in range(interval):
+                        if self._stop.is_set():
+                            break
+                        await asyncio.sleep(1)
+        finally:
+            tunnel_task.cancel()
+
+    def _tunnel_state(self) -> dict:
+        return {
+            "enabled": self.remote_enabled,
+            "relay_url": self.remote_relay_url,
+            "token": self.config["agent_token"],
+            "miners": self.miners,
+            "stopped": self._stop.is_set(),
+        }
+
+    async def _run_tunnel(self, tunnel: Tunnel) -> None:
+        try:
+            await tunnel.run()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # ex.: biblioteca do túnel ausente; a coleta segue normalmente
+            self.ui_events.put({"type": "tunnel", "state": "error", "message": f"Acesso remoto indisponível ({error.__class__.__name__})"})
 
     async def _sync_miners(self, client, config_url, headers) -> None:
         try:
@@ -351,6 +378,8 @@ class Collector:
             response.raise_for_status()
             data = response.json()
             self.miners = data.get("miners", self.miners)
+            self.remote_enabled = bool(data.get("remote_access_enabled", False))
+            self.remote_relay_url = str(data.get("remote_relay_url") or "")
             self.ui_events.put({"type": "miners_updated", "miners": self.miners, "licensed_machines": data.get("licensed_machines"), "used_machines": data.get("used_machines"), "farm_name": data.get("farm_name")})
         except httpx.HTTPError as error:
             self.ui_events.put({"type": "status", "message": f"Falha ao sincronizar com a nuvem: {error}"})
@@ -490,6 +519,8 @@ class App(tk.Tk):
         self.header_label.pack(side="left")
         self.license_label = ttk.Label(top, text="")
         self.license_label.pack(side="left", padx=(14, 0))
+        self.tunnel_label = ttk.Label(top, text="")
+        self.tunnel_label.pack(side="left", padx=(14, 0))
         ttk.Button(top, text="Sair", command=self._logout).pack(side="right")
         self.status_label = ttk.Label(top, text="Conectando...")
         self.status_label.pack(side="right", padx=(0, 14))
@@ -820,6 +851,13 @@ class App(tk.Tk):
             self._render_tree()
         elif kind == "status":
             self.status_label.config(text=event["message"])
+        elif kind == "tunnel":
+            state = event.get("state")
+            if state == "off":
+                self.tunnel_label.config(text="")
+            else:
+                colors = {"connected": "#2c7a4b", "connecting": "#b7791f", "error": "#c0392b"}
+                self.tunnel_label.config(text=event.get("message", ""), foreground=colors.get(state, "#555555"))
 
     def _render_tree(self) -> None:
         selected_ip = None

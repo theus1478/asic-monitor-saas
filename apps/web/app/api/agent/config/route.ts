@@ -13,17 +13,17 @@ async function authenticate(request: Request) {
   const service = createServiceClient();
   const { data: agent } = await service.from("agents").select("id, farm_id").eq("token_hash", hashAgentToken(token)).maybeSingle();
   if (!agent) return null;
-  const { data: farm } = await service.from("farms").select("id, name, organization_id").eq("id", agent.farm_id).maybeSingle();
+  const { data: farm } = await service.from("farms").select("id, name, organization_id, remote_access_enabled").eq("id", agent.farm_id).maybeSingle();
   if (!farm) return null;
   return { service, agent, farm };
 }
 
 /** Monta a resposta com as máquinas da fazenda, marcando quais estão cobertas pela licença da organização. */
-async function buildConfigResponse(service: ReturnType<typeof createServiceClient>, farm: { id: string; name: string; organization_id: string }) {
+async function buildConfigResponse(service: ReturnType<typeof createServiceClient>, farm: { id: string; name: string; organization_id: string; remote_access_enabled?: boolean | null }) {
   const { data: orgFarms } = await service.from("farms").select("id").eq("organization_id", farm.organization_id);
   const orgFarmIds = (orgFarms ?? []).map((f) => f.id);
   const [{ data: orgMiners }, licensedCount] = await Promise.all([
-    service.from("miners").select("id, farm_id, name, ip, protocol_port, type, created_at").eq("enabled", true).in("farm_id", orgFarmIds.length ? orgFarmIds : [farm.id]),
+    service.from("miners").select("id, farm_id, name, ip, protocol_port, web_port, type, created_at").eq("enabled", true).in("farm_id", orgFarmIds.length ? orgFarmIds : [farm.id]),
     getLicensedMachineCount(service, farm.organization_id),
   ]);
   const all = orgMiners ?? [];
@@ -31,7 +31,10 @@ async function buildConfigResponse(service: ReturnType<typeof createServiceClien
   const farmMiners = all.filter((m) => m.farm_id === farm.id);
 
   return {
-    miners: farmMiners.map((m) => ({ id: m.id, name: m.name, ip: m.ip, port: m.protocol_port, type: m.type, licensed: licensedById.get(m.id) ?? false })),
+    miners: farmMiners.map((m) => ({ id: m.id, name: m.name, ip: m.ip, port: m.protocol_port, web_port: m.web_port ?? 80, type: m.type, licensed: licensedById.get(m.id) ?? false })),
+    // Acesso remoto: só liga quando o cliente ativa a fazenda no painel; o coletor só abre o túnel se vier true.
+    remote_access_enabled: Boolean(farm.remote_access_enabled),
+    remote_relay_url: process.env.REMOTE_RELAY_URL || "wss://relay.monitorasic.club/agent",
     poll_interval_seconds: 30,
     farm_name: farm.name,
     licensed_machines: licensedCount,

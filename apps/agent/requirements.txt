@@ -1,3 +1,4 @@
 httpx>=0.27,<1
 cryptography>=44,<47
 passlib>=1.7,<2
+websockets>=14,<17
