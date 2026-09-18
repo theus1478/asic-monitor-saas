@@ -98,6 +98,15 @@ primeiro, o atalho é o caminho pra alternar pro `/admin`.
     contrário), então apagar de verdade deixaria recursos órfãos sem dono.
     Reversível pelo botão "Restaurar conta". Protegido contra
     autoexclusão e contra remover o último `super_admin`.
+  - **Licenças manuais** (só `super_admin`, `admin/users/license-actions.ts` +
+    `[id]/licenses-card.tsx`): lista os lotes de cada organização do usuário
+    (ativo/pendente/expirado/encerrado, origem fatura ou manual) e permite
+    **conceder N licenças** com validade em dias ou até uma data (fim do dia,
+    horário de Brasília; máx. 20 anos) — cria um `license_batches` `active` sem
+    `invoice_id`, sem comissão de afiliado — e **encerrar** um lote ativo na hora
+    (`status = 'cancelled'`). Recalcula o resumo em `subscriptions`
+    (`lib/license.ts#refreshSubscriptionLicenses`) e grava
+    `license_granted`/`license_revoked` em `admin_audit_logs`.
   - Todas as ações passam por `logAdminAction()`
     (`apps/web/lib/admin/audit.ts`), gravando em `admin_audit_logs`
     (`supabase/migrations/0017_admin_user_management.sql`) — nunca com senha
@@ -118,8 +127,7 @@ primeiro, o atalho é o caminho pra alternar pro `/admin`.
 - Página de "minha conta" para o usuário comum trocar o próprio e-mail/senha
   sem passar pelo admin (não existe nenhuma tela de configurações de conta
   pro cliente final ainda).
-- Bloquear/reativar cliente, suspender coleta, criar licença de demonstração
-  pela UI (hoje licenças extras são inseridas manualmente via SQL/Supabase).
+- Bloquear/reativar cliente e suspender coleta pela UI.
 - Gerar/revogar código de ativação de agente pelo painel admin.
 - Indicadores agregados de receita recorrente e inadimplência.
 
@@ -154,10 +162,10 @@ Toda organização nova ganha automaticamente um lote de **3 licenças grátis,
 válidas por 30 dias**, criado pelo mesmo trigger que cria a organização no
 cadastro (`handle_new_user()`, `supabase/migrations/0008_free_trial_licenses.sql`).
 A migration também faz backfill: qualquer organização já existente sem nenhum
-lote de licença recebe o mesmo trial retroativamente. Licenças extras (pagas
-ou de cortesia) hoje são criadas manualmente via SQL Editor do Supabase,
-inserindo direto na tabela `license_batches` — não existe fluxo de UI para
-isso ainda (ver "Ainda não implementado" no painel administrativo).
+lote de licença recebe o mesmo trial retroativamente. Licenças de cortesia
+podem ser concedidas à mão pelo Super Admin em `/admin/users/[id]` (cartão
+"Licenças": quantidade + validade em dias ou data exata, sem fatura —
+`app/admin/users/license-actions.ts`).
 
 ## Autenticação e captcha
 

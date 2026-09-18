@@ -54,7 +54,9 @@ bundle do navegador, já que são embutidas em tempo de build; as demais
 | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | URL canônica do painel: `https://monitorasic.club` |
 | `AGENT_TOKEN_PEPPER` | Segredo usado para gerar hashes dos tokens dos agentes |
-| `SOLANA_RPC_URL` | Endpoint RPC para o monitor on-chain validar transferências USDT (ainda não implementado) |
+| `INVOICE_DERIVATION_SEED` | **Obrigatória para gerar faturas.** Semente mestra (segredo, só servidor) da qual `lib/solana-wallet.ts` deriva o endereço de depósito de cada fatura. Trocar o valor torna irrecuperável a chave de qualquer fatura pendente que já recebeu fundos — por isso nunca gere uma nova sem conferir on-chain que nenhuma fatura pendente tem saldo (foi recriada em 2026-09-18 depois de se perder na migração da Vercel). |
+| `FEE_PAYER_SECRET_KEY` | **Obrigatória para a varredura.** Chave privada (base58) da carteira de baixo valor que só paga a taxa de rede da varredura para a tesouraria; precisa de um pouco de SOL (carteira atual: `3DfS4ACbCNo3Z5rTbm5u8tDpNnATsD6gUNyetaDp4h8s`). |
+| `SOLANA_RPC_URL` | Endpoint RPC usado para conferir e varrer os pagamentos (padrão: RPC público da mainnet-beta) |
 | `NEXT_PUBLIC_SOLANA_USDT_MINT` | Endereço do mint do USDT na rede Solana. Usado no QR code de pagamento (Solana Pay), por isso é público — não é segredo. |
 | `NEXT_PUBLIC_BILLING_WALLET_PUBLIC_KEY` | Endereço público que recebe USDT. Público por natureza (é para onde o cliente paga), exposto no navegador para montar o QR code da fatura. |
 | `RESEND_API_KEY` | Envio de e-mail transacional (alertas de ocorrência e o código de confirmação de 6 dígitos no cadastro/troca de e-mail) via Resend. Sem ela, ocorrências continuam sendo registradas normalmente (só o e-mail fica `skipped`), mas cadastro/verificação de e-mail não funcionam. |
@@ -78,6 +80,21 @@ Não existe mais "Development/Preview/Production" separados como na Vercel — h
 | DNS | Dynadot (`ns1.dyna-ns.net`/`ns2.dyna-ns.net`) — painel do próprio domínio, TTL 5 min |
 | Deploy do app | GitHub → EasyPanel (`source.type: "github"`, `owner: theus1478`, `repo: asic-monitor-saas`, `path: /apps/web`, `ref: main`), build via `apps/web/Dockerfile` (`build.type: "dockerfile"`, `file: "Dockerfile"`, relativo a `path`) |
 | Auto-deploy | **Ainda não habilitado** — falta configurar um token do GitHub (`setGithubToken` na API do EasyPanel) com permissão `Contents: Read` + `Webhooks: Read and write` no repositório. Até lá, redeploy é manual: `GET /api/deploy/<token do serviço>`. |
+
+### BitCart (testado e descontinuado em 2026-09-18)
+
+Foi implantado um BitCart (USDT-BEP20) para substituir a cobrança em Solana e
+depois **abandonado**: a carteira BNB dele usa **um único endereço** (mesmo
+com carteira HD), então faturas de mesmo valor não se distinguem — não dá para
+cobrar exatamente 1 USDT sem risco de misturar clientes. A cobrança voltou
+para o fluxo Solana (endereço derivado por fatura). O stack continua
+instalado, **parado**, em `/opt/bitcart-docker` (projeto Docker Compose
+`bitcart`, containers `bitcart-*`; sobe de novo com `docker compose -p bitcart
+--env-file .env -f compose/generated.yml -f compose/override-easypanel.yml up
+-d`), com rotas Traefik em `/etc/easypanel/traefik/config/bitcart.yaml`
+(`pay`/`pay-api.monitorasic.club`) e a coluna `invoices.bitcart_invoice_id`
+(migration 0021, sem uso). Pode ser removido com `docker compose -p bitcart
+down -v` quando não for mais necessário.
 
 ### Tarefas agendadas (substituem o Vercel Cron)
 
