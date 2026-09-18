@@ -8,6 +8,7 @@ import { requireSuperAdmin, assertNotLastSuperAdmin, isSuperAdmin } from "../../
 import { createServiceClient } from "../../../lib/supabase/service";
 import { logAdminAction } from "../../../lib/admin/audit";
 import { generateAndSendCode } from "../../../lib/otp";
+import { generateTemporaryPassword, sendTemporaryPasswordEmail } from "../../../lib/password-email";
 
 type ActionResult = { ok: boolean; message: string };
 
@@ -156,36 +157,44 @@ export async function changeUsername(userId: string, newUsername: string): Promi
   return { ok: true, message: `Username alterado para @${username}.` };
 }
 
-/** Envia o e-mail padrão de redefinição de senha (mesmo fluxo de user-actions.ts), registrando a ação no histórico do usuário. */
-export async function resetUserPassword(userId: string, email: string): Promise<ActionResult> {
-  const { userId: adminId } = await requirePlatformAdmin();
-  const service = createServiceClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://asic-monitor-saas-vercel.vercel.app";
-  const { error } = await service.auth.resetPasswordForEmail(email, { redirectTo: `${appUrl}/sign-in` });
-  if (error) return { ok: false, message: error.message };
-
-  await logAdminAction(service, { adminId, targetUserId: userId, action: "password_reset_link_sent", ipAddress: await clientIp() });
-  return { ok: true, message: `E-mail de redefinição enviado para ${email}.` };
-}
-
-export async function setTemporaryPassword(userId: string, tempPassword: string, forceChange: boolean): Promise<ActionResult> {
-  const { userId: adminId } = await requirePlatformAdmin();
-  if (tempPassword.length < 8) return { ok: false, message: "A senha temporária precisa ter ao menos 8 caracteres." };
-
+/**
+ * Define a senha do usuário (nunca grava a senha no log — só o fato) e, se
+ * pedido, manda por e-mail (Resend). A senha nova só existe em memória aqui.
+ * `forceChange` exige a troca no próximo login (aplicado em lib/supabase/proxy.ts).
+ */
+async function applyPassword(userId: string, adminId: string, password: string, forceChange: boolean, emailIt: boolean, action: string): Promise<ActionResult> {
   const service = createServiceClient();
   const { data: current } = await service.auth.admin.getUserById(userId);
   if (!current.user) return { ok: false, message: "Usuário não encontrado." };
 
   const { error } = await service.auth.admin.updateUserById(userId, {
-    password: tempPassword,
+    password,
     user_metadata: { ...current.user.user_metadata, force_password_change: forceChange },
   });
   if (error) return { ok: false, message: error.message };
 
-  // Nunca grava a senha no log — só o fato de que uma foi definida.
-  await logAdminAction(service, { adminId, targetUserId: userId, action: "password_set_temporary", newData: { force_password_change: forceChange }, ipAddress: await clientIp() });
+  await logAdminAction(service, { adminId, targetUserId: userId, action, newData: { force_password_change: forceChange, emailed: emailIt }, ipAddress: await clientIp() });
   revalidatePath(`/admin/users/${userId}`);
-  return { ok: true, message: "Senha temporária definida." };
+
+  if (!emailIt) return { ok: true, message: "Senha definida." };
+  const email = current.user.email;
+  if (!email) return { ok: false, message: "A senha foi definida, mas o usuário não tem e-mail para receber. Informe a senha a ele por outro meio." };
+  const sent = await sendTemporaryPasswordEmail({ email, password, forceChange });
+  if (!sent.ok) return { ok: false, message: `A senha foi definida, mas o e-mail NÃO foi enviado (${sent.message}). Envie de novo ou informe a senha ao usuário por outro meio.` };
+  return { ok: true, message: `Senha definida e enviada para ${email}.` };
+}
+
+/** Gera uma senha temporária aleatória, define no usuário (troca obrigatória no primeiro login) e envia para o e-mail dele. */
+export async function sendTemporaryPasswordByEmail(userId: string): Promise<ActionResult> {
+  const { userId: adminId } = await requirePlatformAdmin();
+  return applyPassword(userId, adminId, generateTemporaryPassword(), true, true, "password_temporary_emailed");
+}
+
+/** O admin digita a senha; opcionalmente também manda por e-mail e/ou exige a troca no próximo login. */
+export async function setTemporaryPassword(userId: string, tempPassword: string, forceChange: boolean, emailIt = false): Promise<ActionResult> {
+  const { userId: adminId } = await requirePlatformAdmin();
+  if (tempPassword.length < 8) return { ok: false, message: "A senha precisa ter ao menos 8 caracteres." };
+  return applyPassword(userId, adminId, tempPassword, forceChange, emailIt, "password_set_temporary");
 }
 
 export async function updateAccountStatus(userId: string, status: "active" | "inactive" | "suspended" | "blocked", reason: string): Promise<ActionResult> {

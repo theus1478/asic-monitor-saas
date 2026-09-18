@@ -116,3 +116,10 @@ code,.metric,.farm-stat b,.calculator-result strong,.purchase-total strong{font-
 @media(max-width:1050px){.steps-grid{grid-template-columns:repeat(2,1fr)}.clean-farm{grid-template-columns:1fr 1fr}.farm-actions{justify-content:flex-end}.refined-calculator{grid-template-columns:1fr}}
 @media(max-width:760px){.sidebar{position:relative;height:auto;width:100%}.route-progress{left:0}.sidebar-nav{display:flex;overflow-x:auto}.sidebar-nav a{white-space:nowrap}.workspace,.sidebar-bottom{display:none}.main{padding:28px 18px 60px}.license-summary{grid-template-columns:1fr}.purchase-form{grid-template-columns:1fr}.collector-banner{grid-template-columns:auto 1fr}.collector-banner>b{grid-column:1/-1}.clean-farm{grid-template-columns:1fr}.farm-actions{justify-content:flex-start}.tier-track{grid-template-columns:1fr 1fr}}
 @media(max-width:520px){.steps-grid{grid-template-columns:1fr}.collector-hero{grid-template-columns:1fr}.collector-glyph{display:none}.collector-help{display:grid;gap:15px}.expiry-meta{display:grid;gap:2px}.batch-row{grid-template-columns:1fr}}
+/* Botões de destaque do monitoramento (Telemetria / Retornar) e cards de fazenda clicáveis */
+.lm-logout.lm-hl{border-color:#3ddca0;background:#3ddca01f;color:#3ddca0;font-weight:700;font-size:13px;padding:8px 16px;box-shadow:0 0 0 1px #3ddca033,0 0 14px #3ddca02b}
+.lm-logout.lm-hl:hover{background:#3ddca0;color:#04120c;border-color:#3ddca0}
+.lm-logout.lm-hl-solid{background:#3ddca0;color:#04120c}
+.lm-logout.lm-hl-solid:hover{background:#6ef0c1;border-color:#6ef0c1}
+.farm-card-link{color:inherit;cursor:pointer}
+.farm-card-link:hover b{color:var(--accent)}

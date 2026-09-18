@@ -6,6 +6,8 @@ import type { RuleOutcome } from "./rules";
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 
+const STALE_INCIDENT_MS = 10 * 60_000;
+
 /**
  * "ASIC offline" não dá pra detectar dentro do POST de telemetria (é a
  * AUSÊNCIA de dados que importa). Reaproveita o mesmo padrão já usado por
@@ -71,6 +73,19 @@ export async function sweepOfflineIncidents(service: ServiceClient, organization
       toResolve.push(existing.id);
       eventRows.push({ miner_id: miner.id, incident_id: existing.id, level: "info", category: "network", message: "ASIC voltou a ficar online", data: { downtime_since: existing.started_at } });
     }
+  }
+
+  // Ocorrências de leitura (temperatura, ventoinha, hashrate...) são renovadas
+  // a cada ciclo do agente enquanto a condição existir (engine.ts atualiza
+  // last_detected_at). Uma que ninguém renova há mais de STALE_INCIDENT_MS já
+  // passou — a temperatura baixou ou a máquina parou de reportar (aí o alerta
+  // que vale é o de "offline") — então fecha, em vez de ficar ativa pra sempre
+  // e mantendo a máquina amarela/vermelha no painel.
+  const staleCutoff = new Date(Date.now() - STALE_INCIDENT_MS).toISOString();
+  const { data: staleIncidents } = await service.from("asic_incidents").select("id, miner_id, rule_key").in("miner_id", minerIds).in("status", ["active", "acknowledged"]).neq("rule_key", "miner_offline").lt("last_detected_at", staleCutoff);
+  for (const stale of staleIncidents ?? []) {
+    toResolve.push(stale.id);
+    eventRows.push({ miner_id: stale.miner_id, incident_id: stale.id, level: "info", category: stale.rule_key.startsWith("temperature") ? "temperature" : stale.rule_key.startsWith("fan") ? "fan" : "general", message: `Recuperado: ${stale.rule_key}`, data: { reason: "no_recent_detection" } });
   }
 
   await Promise.all([

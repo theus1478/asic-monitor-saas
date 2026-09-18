@@ -1,51 +1,53 @@
 "use client";
 
 import { useState } from "react";
-import { resetUserPassword, setTemporaryPassword } from "../actions";
+import { sendTemporaryPasswordByEmail, setTemporaryPassword } from "../actions";
 
 export function PasswordActions({ userId, email }: { userId: string; email: string }) {
-  const [linkPending, setLinkPending] = useState(false);
-  const [linkFeedback, setLinkFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [mailPending, setMailPending] = useState(false);
+  const [mailFeedback, setMailFeedback] = useState<{ ok: boolean; message: string } | null>(null);
 
-  const [tempPassword, setTempPassword] = useState("");
+  const [manualPassword, setManualPassword] = useState("");
   const [forceChange, setForceChange] = useState(true);
-  const [tempPending, setTempPending] = useState(false);
-  const [tempFeedback, setTempFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [emailIt, setEmailIt] = useState(false);
+  const [manualPending, setManualPending] = useState(false);
+  const [manualFeedback, setManualFeedback] = useState<{ ok: boolean; message: string } | null>(null);
 
-  async function sendLink() {
-    if (!window.confirm(`Enviar e-mail de redefinição de senha para ${email}?`)) return;
-    setLinkPending(true);
-    setLinkFeedback(null);
-    const result = await resetUserPassword(userId, email);
-    setLinkFeedback(result);
-    setLinkPending(false);
+  async function sendTemporary() {
+    if (!window.confirm(`Gerar uma senha temporária e enviar para ${email}? A senha atual do usuário deixa de funcionar e ele precisará trocá-la no primeiro acesso.`)) return;
+    setMailPending(true);
+    setMailFeedback(null);
+    setMailFeedback(await sendTemporaryPasswordByEmail(userId));
+    setMailPending(false);
   }
 
-  async function submitTemp(e: React.FormEvent) {
+  async function submitManual(e: React.FormEvent) {
     e.preventDefault();
-    if (!window.confirm("Definir esta senha temporária para o usuário agora? Ele não será notificado automaticamente.")) return;
-    setTempPending(true);
-    setTempFeedback(null);
-    const result = await setTemporaryPassword(userId, tempPassword, forceChange);
-    setTempFeedback(result);
-    setTempPending(false);
-    if (result.ok) setTempPassword("");
+    const confirmation = emailIt ? `Definir esta senha e enviá-la por e-mail para ${email}?` : "Definir esta senha agora? O usuário não será avisado — informe a senha a ele.";
+    if (!window.confirm(confirmation)) return;
+    setManualPending(true);
+    setManualFeedback(null);
+    const result = await setTemporaryPassword(userId, manualPassword, forceChange, emailIt);
+    setManualFeedback(result);
+    setManualPending(false);
+    if (result.ok) setManualPassword("");
   }
 
   return <div className="card" style={{ display: "grid", gap: 20, maxWidth: 640 }}>
     <h2>Redefinir senha</h2>
     <div>
-      <p className="muted" style={{ fontSize: 13 }}>Envia o link padrão de redefinição — o usuário escolhe a própria senha nova. O admin nunca vê a senha do usuário.</p>
-      {linkFeedback && <p className={`form-message ${linkFeedback.ok ? "success" : "error"}`}>{linkFeedback.message}</p>}
-      <button className="button secondary" type="button" disabled={linkPending} onClick={sendLink}>{linkPending ? "Enviando..." : "Enviar link de redefinição"}</button>
+      <p className="muted" style={{ fontSize: 13 }}>Gera uma senha aleatória, define no usuário e envia para <b>{email}</b>. No primeiro acesso ele é obrigado a criar uma senha nova.</p>
+      {mailFeedback && <p className={`form-message ${mailFeedback.ok ? "success" : "error"}`}>{mailFeedback.message}</p>}
+      <button className="button" type="button" disabled={mailPending} onClick={sendTemporary}>{mailPending ? "Enviando..." : "Enviar senha temporária por e-mail"}</button>
     </div>
     <div style={{ borderTop: "1px solid var(--line)", paddingTop: 16 }}>
-      <p className="muted" style={{ fontSize: 13 }}>Ou defina uma senha temporária manualmente (o usuário deve trocá-la depois de entrar).</p>
-      {tempFeedback && <p className={`form-message ${tempFeedback.ok ? "success" : "error"}`}>{tempFeedback.message}</p>}
-      <form onSubmit={submitTemp} className="inline-form" style={{ flexWrap: "wrap" }}>
-        <input type="password" value={tempPassword} onChange={(e) => setTempPassword(e.target.value)} placeholder="Senha temporária (mín. 8 caracteres)" minLength={8} required autoComplete="new-password" />
+      <p className="muted" style={{ fontSize: 13 }}>Ou defina você mesmo a senha do usuário (mín. 8 caracteres).</p>
+      {manualFeedback && <p className={`form-message ${manualFeedback.ok ? "success" : "error"}`}>{manualFeedback.message}</p>}
+      <form onSubmit={submitManual} className="form-grid">
+        <input type="password" value={manualPassword} onChange={(e) => setManualPassword(e.target.value)} placeholder="Nova senha" minLength={8} required autoComplete="new-password" />
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><input type="checkbox" checked={forceChange} onChange={(e) => setForceChange(e.target.checked)} /> Exigir troca no próximo login</label>
-        <button className="button secondary" type="submit" disabled={tempPending}>{tempPending ? "Definindo..." : "Definir senha temporária"}</button>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><input type="checkbox" checked={emailIt} onChange={(e) => setEmailIt(e.target.checked)} /> Enviar esta senha por e-mail ao usuário</label>
+        <button className="button secondary" type="submit" disabled={manualPending} style={{ justifySelf: "start" }}>{manualPending ? "Definindo..." : "Definir senha"}</button>
       </form>
     </div>
   </div>;

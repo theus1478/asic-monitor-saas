@@ -66,7 +66,7 @@ export function CreateAgentPanel({ farmId, agents }: { farmId: string; agents: A
     ) : (
       <div className="inline-form">
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t("agentNamePlaceholder")} />
-        <button className="button secondary" type="button" disabled={pending} onClick={handleCreate}>
+        <button className="button" type="button" disabled={pending} onClick={handleCreate} style={{ fontWeight: 700, boxShadow: "0 0 14px #3ddca033" }}>
           {pending ? t("generatingToken") : t("generateToken")}
         </button>
       </div>

@@ -22,12 +22,13 @@ function SidebarNavContent({ admin, pathname }: { admin: boolean; pathname: stri
     { href: "/affiliate", label: t("affiliates"), icon: "✦" },
   ];
   const links = admin
-    ? [{ href: "/admin", label: t("management"), icon: "⌁" }, { href: "/admin/users", label: t("users"), icon: "◎" }, { href: "/admin/affiliates", label: t("affiliates"), icon: "✦" }]
+    ? [{ href: "/admin", label: t("management"), icon: "⌁" }, { href: "/admin/affiliates", label: t("affiliates"), icon: "✦" }]
     : clientLinks;
   return <>
     <div className={`route-progress ${navigating ? "visible" : ""}`} />
     <nav className="sidebar-nav">{links.map((link) => {
-      const active = pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`));
+      // "Gestão" (/admin) também cobre Usuários e detalhes (/admin/users, /admin/orgs), mas não Indicações.
+      const active = pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`) && !(link.href === "/admin" && pathname.startsWith("/admin/affiliates")));
       return <Link key={link.href} href={link.href} prefetch className={active ? "active" : ""} onClick={() => { if (!active) setNavigating(true); }}><span>{link.icon}</span>{link.label}</Link>;
     })}</nav>
   </>;

@@ -85,7 +85,8 @@ primeiro, o atalho é o caminho pra alternar pro `/admin`.
     observações administrativas — só visíveis a admin), trocar e-mail (duas
     opções: confirmar na hora ou exigir código de 6 dígitos do próprio
     usuário, ver seção de confirmação de e-mail abaixo), trocar username,
-    resetar senha (link padrão ou senha temporária com exigência de troca),
+    redefinir senha (senha temporária por e-mail ou senha manual — ver
+    "Senhas" abaixo),
     status da conta (ativo/inativo/suspenso/bloqueado com motivo — suspender/
     bloquear usa o ban nativo do GoTrue via `admin.updateUserById(id,
     { ban_duration })`, não só um campo decorativo), nível de administrador
@@ -111,11 +112,25 @@ primeiro, o atalho é o caminho pra alternar pro `/admin`.
     (`apps/web/lib/admin/audit.ts`), gravando em `admin_audit_logs`
     (`supabase/migrations/0017_admin_user_management.sql`) — nunca com senha
     ou código em texto puro.
-- Reset de senha de qualquer usuário a partir do painel admin
-  (`apps/web/app/admin/user-actions.ts`, usado no detalhe de organização):
-  dispara o fluxo padrão de "esqueci minha senha" do Supabase
-  (`resetPasswordForEmail`) para o e-mail do usuário-alvo — o admin nunca vê
-  nem define a senha real, só aciona o e-mail de redefinição.
+- **Painel único de Gestão:** `/admin` (Clientes, por organização) e
+  `/admin/users` (Usuários) são abas do mesmo painel (`app/admin/admin-tabs.tsx`)
+  sob uma única entrada "Gestão" no menu; senha, licenças e status ficam no
+  detalhe do usuário (`/admin/users/[id]`), que também é o destino dos links de
+  membros na página da organização.
+- **Senhas** (`admin/users/actions.ts`, `[id]/password-actions.tsx`): (1)
+  "Enviar senha temporária por e-mail" — gera uma senha aleatória de 12
+  caracteres, define no usuário com `force_password_change` e manda por
+  e-mail (`lib/password-email.ts`, Resend); (2) definir a senha à mão, com
+  opções de exigir troca no próximo login e/ou mandar por e-mail. Se a senha é
+  definida mas o e-mail falha, a tela avisa e é só repetir. A senha nunca vai
+  para `admin_audit_logs`. O reset por link do GoTrue
+  (`resetPasswordForEmail`) foi removido: o Supabase self-hosted só tem SMTP
+  falso (`supabase-mail`), então o e-mail nunca chegava.
+- **Troca obrigatória de senha:** `force_password_change` em `user_metadata`
+  agora é aplicado no middleware (`lib/supabase/proxy.ts`): o usuário é levado a
+  `/change-password` antes de qualquer outra página e o flag é limpo quando ele
+  salva uma senha nova. A tela também fica acessível a qualquer usuário logado
+  pelo link "Alterar senha" no menu lateral.
 
 ### Ainda não implementado
 
@@ -350,6 +365,23 @@ já é o dado bruto, reconstituído sob demanda em vez de duplicado.
 - **Saúde da máquina** (🟢🟡🔴⚫ no `farms/[id]`) é sempre derivada das
   ocorrências ativas daquela máquina, nunca um campo separado que possa
   divergir delas.
+- **Alertas que passam sozinhos:** uma ocorrência de leitura (temperatura,
+  ventoinha, hashrate…) é renovada (`last_detected_at`) a cada ciclo enquanto a
+  condição existe e resolvida no primeiro ciclo em que ela some — a máquina
+  volta a verde na hora. Se a máquina para de reportar, não há ciclo para
+  resolver: `sweepOfflineIncidents` fecha as ocorrências (exceto
+  `miner_offline`) que ninguém renova há mais de 10 minutos, em vez de
+  deixá-las ativas para sempre.
+- **"Precisam de atenção" (Visão Geral):** mostra só alertas das últimas 2 h;
+  um alerta mais antigo só aparece enquanto a máquina dele não estiver
+  minerando (offline ou hashrate zero). Os cartões de contagem (com alerta /
+  críticos / avisos) continuam contando todas as ocorrências ativas.
+- **Limiar de temperatura:** vem de `alert_settings.temp_warning_c/critical_c`
+  por organização (padrão 85/95 °C, igual para todos os fabricantes), enquanto
+  as cores do termômetro por placa em `legacy-monitor.tsx` usam limites por
+  fabricante (Whatsminer 95/100, Antminer 80/90, Avalon 85/95) — por isso um
+  Whatsminer a 86–90 °C aparece verde na placa e ainda assim abre "Temperatura
+  elevada".
 
 Requer `RESEND_API_KEY` (e opcionalmente `ALERT_EMAIL_FROM`) configurada no
 serviço `web` do EasyPanel — sem ela, o motor continua registrando

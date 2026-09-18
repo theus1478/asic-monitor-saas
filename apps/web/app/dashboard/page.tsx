@@ -104,7 +104,15 @@ export default async function DashboardPage() {
   const incidents = (incidentRows ?? []) as Incident[];
   const minerNameById = new Map(minerList.map((m) => [m.id, m.name]));
   const severityRank = { critical: 2, warning: 1, info: 0 } as const;
-  const attention = [...incidents].sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || new Date(b.last_detected_at).getTime() - new Date(a.last_detected_at).getTime()).slice(0, 6);
+  // "Precisam de atenção": só alertas das últimas 2h; um alerta mais antigo só
+  // continua aparecendo enquanto a máquina dele não estiver minerando (offline
+  // ou com hashrate zerado) — depois que ela volta a minerar, o aviso velho sai.
+  const RECENT_ALERT_MS = 2 * 3600_000;
+  const isMining = (minerId: string) => isMinerOnline(minerId) && (latestByMiner.get(minerId)?.hashrate_ths ?? 0) > 0;
+  const attention = incidents
+    .filter((incident) => now - new Date(incident.last_detected_at).getTime() <= RECENT_ALERT_MS || !isMining(incident.miner_id))
+    .sort((a, b) => severityRank[b.severity] - severityRank[a.severity] || new Date(b.last_detected_at).getTime() - new Date(a.last_detected_at).getTime())
+    .slice(0, 6);
 
   const minersWithAlert = new Set(incidents.map((i) => i.miner_id));
   const minersWithCritical = new Set(incidents.filter((i) => i.severity === "critical").map((i) => i.miner_id));
@@ -173,7 +181,7 @@ export default async function DashboardPage() {
       <div className="section-title"><div><h2>{t("farms")}</h2><p>{t("agentsState")}</p></div><Link href="/farms" className="text-link">{t("manage")}</Link></div>
       {farmCards.length === 0
         ? <p className="muted">{t("noFarmsYet")}</p>
-        : <div className="farm-cards">{farmCards.map((farm) => <article className="card" key={farm.id}><span className={`status-dot ${farm.online > 0 ? "" : "off"}`} /> <b>{farm.name}</b><p className="muted">{farm.timezone}</p><div className="farm-values"><b>{farm.online}/{farm.total}</b><small>{t("online")}</small><b>{formatHashrate(farm.hashrateThs)}</b><small>{t("hashRate")}</small></div></article>)}</div>}
+        : <div className="farm-cards">{farmCards.map((farm) => <Link href={`/farms/${farm.id}`} className="card kpi-link farm-card-link" key={farm.id}><span className={`status-dot ${farm.online > 0 ? "" : "off"}`} /> <b>{farm.name}</b><p className="muted">{farm.timezone}</p><div className="farm-values"><b>{farm.online}/{farm.total}</b><small>{t("online")}</small><b>{formatHashrate(farm.hashrateThs)}</b><small>{t("hashRate")}</small></div></Link>)}</div>}
     </section>
   </Shell>;
 }

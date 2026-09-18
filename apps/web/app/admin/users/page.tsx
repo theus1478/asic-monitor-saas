@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader, Shell } from "../../components";
+import { AdminTabs } from "../admin-tabs";
 import { requirePlatformAdmin } from "../../../lib/org-data";
 import { listPlatformUsers, type PlatformUserRow } from "../../../lib/admin/users";
 import { currentTimeMs } from "../../../lib/time";
@@ -88,7 +89,8 @@ export default async function AdminUsersPage({ searchParams }: Props) {
   const pill = (href: string, active: boolean, label: string) => <Link key={href} href={href} className={`button compact ${active ? "" : "secondary"}`}>{label}</Link>;
 
   return <Shell admin>
-    <PageHeader title="Gestão de Usuários" description="Contas, acessos e ciclo de vida de usuários da plataforma." action={<Link href="/admin/users/new" className="button">+ Novo usuário</Link>} />
+    <PageHeader title="Gestão da plataforma" description="Clientes, usuários, licenças e senhas num só painel." action={<Link href="/admin/users/new" className="button">+ Novo usuário</Link>} />
+    <AdminTabs active="users" />
 
     <section className="metrics-grid">
       <article className="card"><p className="eyebrow">TOTAL DE USUÁRIOS</p><div className="metric">{total}</div></article>

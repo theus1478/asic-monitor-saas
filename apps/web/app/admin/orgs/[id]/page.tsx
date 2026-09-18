@@ -5,7 +5,6 @@ import { requirePlatformAdmin } from "../../../../lib/org-data";
 import { createServiceClient } from "../../../../lib/supabase/service";
 import { getLicensedMachineCount } from "../../../../lib/license";
 import { currentTimeMs } from "../../../../lib/time";
-import { ResetPasswordButton } from "./reset-password-button";
 
 const FRESH_MS = 90_000;
 const INVOICE_LABEL: Record<string, string> = { paid: "Pago", pending: "Pendente", expired: "Expirada", cancelled: "Cancelada" };
@@ -79,7 +78,7 @@ export default async function AdminOrgPage({ params }: { params: Promise<{ id: s
       {members.length === 0
         ? <p className="muted">Nenhum usuário vinculado.</p>
         : <ul className="agent-list">{members.map((m) => <li key={m.userId}><Link href={`/admin/users/${m.userId}`}>{m.email}</Link> <span className="muted">· {m.role}</span></li>)}</ul>}
-      {ownerEmail && <ResetPasswordButton email={ownerEmail} />}
+      <p className="muted" style={{ fontSize: 13 }}>Para redefinir senha, enviar senha temporária ou conceder licenças, abra o usuário acima.</p>
     </section>
 
     <section className="card table-card">

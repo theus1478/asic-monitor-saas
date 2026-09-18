@@ -14,7 +14,7 @@ export async function Shell({ children, admin = false }: { children: ReactNode; 
       <SiteLogo />
       <p className="workspace">{admin ? t("workspaceAdmin") : t("workspaceClient")}</p>
       <SidebarNav admin={admin} />
-      <div className="sidebar-bottom"><LanguageSwitcher /><form action={signOut}><button className="logout-button" type="submit">{t("logout")}</button></form><small>v0.2</small></div>
+      <div className="sidebar-bottom"><LanguageSwitcher /><Link href="/change-password" className="text-link" style={{ fontSize: 12 }}>{t("changePassword")}</Link><form action={signOut}><button className="logout-button" type="submit">{t("logout")}</button></form><small>v0.2</small></div>
     </aside>
     <main className="main">
       {showAdminShortcut && <Link href="/admin" className="admin-shortcut">⚙ {t("adminShortcut")}</Link>}

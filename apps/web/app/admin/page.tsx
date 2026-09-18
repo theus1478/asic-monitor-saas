@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { PageHeader, Shell } from "../components";
+import { AdminTabs } from "./admin-tabs";
 import { requirePlatformAdmin } from "../../lib/org-data";
 import { createServiceClient } from "../../lib/supabase/service";
 import { getLicensedMachineCount } from "../../lib/license";
@@ -119,7 +120,8 @@ export default async function AdminPage() {
   const totalMrrCents = orgList.reduce((sum, o) => sum + monthlyPriceCents(minersByOrg.get(o.id) ?? 0), 0);
 
   return <Shell admin>
-    <PageHeader title="Gestão da plataforma" description="Acompanhe clientes, máquinas e agentes de toda a operação." />
+    <PageHeader title="Gestão da plataforma" description="Clientes, usuários, licenças e senhas num só painel." />
+    <AdminTabs active="clients" />
     <section className="metrics-grid">
       <article className="card"><p className="eyebrow">CLIENTES</p><div className="metric">{orgList.length}</div><p className="muted">organizações cadastradas</p></article>
       <article className="card"><p className="eyebrow">MÁQUINAS CADASTRADAS</p><div className="metric">{minerList.length}</div><p className="muted">em todas as contas</p></article>

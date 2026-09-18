@@ -58,5 +58,12 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(new URL("/verify-email", request.url));
   }
 
+  // Senha temporária definida por um admin: exige criar uma senha nova antes
+  // de qualquer outra página (também no middleware, não dá pra contornar pela URL).
+  const exemptFromPasswordChange = pathname === "/change-password" || pathname.startsWith("/auth") || pathname === "/sign-in" || pathname === "/verify-email";
+  if (user && !exemptFromPasswordChange && user.user_metadata?.force_password_change === true) {
+    return NextResponse.redirect(new URL("/change-password", request.url));
+  }
+
   return response;
 }
