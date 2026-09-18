@@ -331,6 +331,26 @@ Requer `RESEND_API_KEY` (e opcionalmente `ALERT_EMAIL_FROM`) configurada no
 Vercel — sem ela, o motor continua registrando ocorrências normalmente, só o
 e-mail fica marcado como `skipped`.
 
+## Consumo de energia (`miner_energy_daily`)
+
+O card "Consumo registrado · 30 dias" do dashboard soma um rollup diário
+(`miner_energy_daily`, `supabase/migrations/0020_miner_energy_daily.sql`,
+uma linha por máquina/dia) em vez de reintegrar telemetria bruta a cada
+visita. `POST /api/agent/metrics` já lê a leitura anterior de cada máquina
+pra alimentar o motor de alertas (comparar "antes vs agora") — a mesma
+leitura agora também calcula o delta de energia (trapézio entre a potência
+anterior e a atual, gap grande limitado a 5min) e incrementa o rollup via
+`increment_miner_energy` (função SQL com `ON CONFLICT DO UPDATE`, atômica
+sob posts concorrentes de agentes diferentes). O dashboard só soma as
+últimas 30 linhas por máquina — não depende mais do volume de telemetria
+histórica, só do número de máquinas × 30.
+
+Antes disso, o dashboard buscava até 10.000 linhas de `miner_metrics` dos
+últimos 30 dias em toda visita (pra esse cálculo e pro card de hashrate) —
+num plano com throughput de banco limitado, isso rodava em cada carregamento
+da Visão Geral, de todo cliente. Ver `docs/configuration.md` pra contexto
+sobre a capacidade atual do banco.
+
 ## Fases
 
 1. Contas, organizações, fazendas, serviço coletor e ingestão de métricas.
