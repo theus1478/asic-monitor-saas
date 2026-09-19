@@ -94,6 +94,23 @@ instalado, **parado**, em `/opt/bitcart-docker` (projeto Docker Compose
 (migration 0021, sem uso). Pode ser removido com `docker compose -p bitcart
 down -v` quando não for mais necessário.
 
+### Diagnóstico de lentidão (VPS × rota de internet)
+
+Antes de mexer na VPS, separe "servidor lento" de "caminho lento":
+
+1. Na VPS: `curl -s -o /dev/null -w "%{time_total}\n" --resolve monitorasic.club:443:127.0.0.1 https://monitorasic.club/sign-in`
+   — o normal é ~0,05 s. Também vale conferir `uptime`, `free -m`, `vmstat 1 5`
+   (coluna `st` = CPU roubada pelo host) e `docker stats --no-stream`.
+2. Do PC do cliente: `ping -n 10 2.25.234.75` e `tracert -d 2.25.234.75`; comparar
+   com sites de referência (Google) e testar pelo 4G.
+
+Ocorrência de 2026-09-19: VPS ociosa (carga 0,3, 46 ms localmente, telemetria
+normal), mas do PC do operador o ping tinha 50% de perda e ~170 ms, com o site
+levando 3–30 s — perda num salto internacional da rota entre a operadora
+brasileira e a Hostinger. Não é falha do servidor. Se persistir: colocar o
+Cloudflare na frente (troca de nameservers; o `*.remote` do acesso remoto ficaria
+fora do proxy) ou mudar a VPS para o datacenter de São Paulo.
+
 ### Tarefas agendadas (substituem o Vercel Cron)
 
 A Vercel executava os crons definidos em `apps/web/vercel.json`. Na VPS isso
@@ -165,6 +182,13 @@ painel novo.
   pouco para vencer; ao trocar o certificado o script recopia os arquivos e
   reescreve `remote.yaml` para o Traefik recarregar. O certificado atual vence em
   2026-12-17.
+- **Rotação das chaves da Dynadot**: a Dynadot só ativa a chave nova depois de
+  alguns minutos (nesse intervalo a API responde `invalid key` para ela) e revoga
+  a antiga em seguida — não apague a chave antiga do arquivo antes de a nova
+  responder `success` em `get_dns`. Depois de trocar o conteúdo de
+  `/root/secrets/dynadot.env`, a próxima emissão/renovação só comprova a chave
+  secreta (o `lego` usa a API RESTful). Sugestão: restringir a chave ao IP da VPS
+  (`2.25.234.75`) no painel da Dynadot.
 - **Migration `0022_remote_access.sql`** deve ser aplicada **antes** de subir o
   código que a usa (`/api/agent/config` passou a ler `farms.remote_access_enabled`
   e `miners.web_port`).

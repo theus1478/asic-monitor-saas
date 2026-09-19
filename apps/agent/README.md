@@ -39,6 +39,32 @@ ninguém precisar tocar no PC depois de um reinício. Não precisa de Tarefa
 Agendada nem de privilégio de administrador. Exige a versão 0.7.0 ou
 posterior do executável.
 
+## Acesso remoto (versão 0.11.0 ou posterior)
+
+Quando o cliente liga **Acesso remoto** na fazenda (painel → Telemetria), o
+`/api/agent/config` passa a devolver `remote_access_enabled`, `remote_relay_url`
+(`wss://relay.monitorasic.club/agent`) e a `web_port` de cada máquina. O
+`tunnel.py` abre então uma conexão WebSocket **de saída** com o relay,
+autenticada com o mesmo token do agente, e atende as requisições HTTP que o
+navegador do cliente faz à tela da ASIC. Nenhuma porta da fazenda é aberta.
+
+- **Só atende máquinas da própria fazenda**: o destino nunca vem do quadro
+  recebido — o coletor procura o `miner_id` na lista que ele mesmo recebeu da
+  nuvem e usa o IP (literal) e a `web_port` cadastrados. Método fora da lista
+  comum, caminho com espaço/controle e id desconhecido são recusados
+  (`forbidden`); redirecionamentos não são seguidos; `Host`, `Origin` e
+  `Referer` são reescritos para o IP da ASIC; `Accept-Encoding: identity`.
+- Limites: corpo/resposta ≤ 10 MB, 25 s por requisição, até 8 simultâneas.
+- A janela mostra o estado ("Acesso remoto conectado/desconectado"; nada
+  aparece com o recurso desligado). Falha do túnel nunca interrompe a
+  telemetria: ele roda numa tarefa própria e reconecta com espera crescente
+  (3 s → 60 s). Desligar o acesso na fazenda fecha o túnel em até 5 s.
+- Depende de `websockets` (`requirements.txt`); o `.exe` é gerado com
+  `--collect-submodules websockets`.
+- Testes: `python -m pytest` em `apps/agent` (`tests/test_tunnel.py`) e o teste
+  ponta a ponta com o relay em `apps/relay/test/e2e.mjs` (com
+  `E2E_PY_AGENT=python` ele usa este coletor no lugar do simulador em Node).
+
 ## Compilar o .exe
 
 Distribuído como binário, mas o código-fonte é `gui_app.py` + `miners.py`

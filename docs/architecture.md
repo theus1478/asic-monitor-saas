@@ -25,7 +25,8 @@ flowchart LR
 | Banco de dados | Postgres self-hosted (pilha oficial `supabase/supabase`, Docker Compose, na mesma VPS) |
 | Autenticação | Organizações e permissões por usuário |
 | Assinaturas | Faturas em USDT na rede Solana e monitoramento on-chain |
-| Agente | Python empacotado como serviço Windows sem interface |
+| Agente | Python empacotado como `.exe` Windows (com janela); telemetria, comandos e túnel de acesso remoto |
+| Acesso remoto | Serviço `relay` (Node, `apps/relay`) no EasyPanel + certificado curinga `*.remote.monitorasic.club` (ver "Acesso remoto à tela da ASIC") |
 
 Rodou em Vercel + Supabase Cloud (plano Free) até 2026-09-18, quando a
 instância `t3.nano` do Supabase Cloud começou a saturar (~98% CPU sob carga
@@ -45,9 +46,14 @@ no banco antigo estão em "Descomissionamento" no mesmo documento.
 - **Organization**: conta comercial do cliente.
 - **Farm**: fazenda dentro de uma organização.
 - **Agent**: instalação autorizada no PC da fazenda.
-- **Miner**: ASIC cadastrada manualmente.
+- **Miner**: ASIC cadastrada manualmente (`web_port`, padrão 80, é a porta da
+  tela web usada pelo acesso remoto).
 - **Metric**: leitura enviada pelo agente.
 - **Subscription**: licença e estado da assinatura.
+- **License batch**: lote de licenças com validade (compra ou concessão manual do admin).
+- **Remote access log** (`remote_access_logs`): quem abriu qual máquina, quando e de
+  que IP; também registra ligar/desligar o acesso remoto da fazenda
+  (`farms.remote_access_enabled`, padrão desligado).
 
 ## Painel administrativo
 
@@ -59,7 +65,8 @@ contrário. Essa área não usa o escopo de uma organização de cliente e permi
 controlar a operação inteira. Uma conta com esse papel vê um atalho fixo
 ("⚙ Painel admin", `apps/web/app/components.tsx`) no canto superior direito de
 qualquer página do painel do cliente — o login sempre cai no dashboard normal
-primeiro, o atalho é o caminho pra alternar pro `/admin`.
+primeiro, o atalho é o caminho pra alternar pro `/admin`. No celular/tablet
+estreito o atalho fixo some e o mesmo link aparece no menu ☰ do topo.
 
 ### Implementado hoje
 
