@@ -17,7 +17,8 @@
     "workspaceAdmin": "ADMINISTRAÇÃO",
     "logout": "Sair da conta",
     "changePassword": "Alterar senha",
-    "adminShortcut": "Painel admin"
+    "adminShortcut": "Painel admin",
+    "account": "Conta e idioma"
   },
   "landing": {
     "signIn": "Entrar",
@@ -314,6 +315,8 @@
     "colUptime": "Uptime",
     "colRejected": "Rej.",
     "colShares": "Shares",
+    "sortBy": "Ordenar por",
+    "sortDirection": "Inverter a ordem",
     "noMachinesMatch": "Nenhuma máquina corresponde ao filtro.",
     "hashrateLabel": "Hashrate",
     "consumptionLabel": "Consumo",

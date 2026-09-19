@@ -17,7 +17,8 @@
     "workspaceAdmin": "АДМИНИСТРИРОВАНИЕ",
     "logout": "Выйти",
     "changePassword": "Сменить пароль",
-    "adminShortcut": "Панель админа"
+    "adminShortcut": "Панель админа",
+    "account": "Аккаунт и язык"
   },
   "landing": {
     "signIn": "Войти",
@@ -314,6 +315,8 @@
     "colUptime": "Аптайм",
     "colRejected": "Откл.",
     "colShares": "Шеры",
+    "sortBy": "Сортировать по",
+    "sortDirection": "Изменить порядок",
     "noMachinesMatch": "Ни одно устройство не соответствует фильтру.",
     "hashrateLabel": "Хешрейт",
     "consumptionLabel": "Потребление",

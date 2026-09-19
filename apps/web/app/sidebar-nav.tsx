@@ -29,7 +29,7 @@ function SidebarNavContent({ admin, pathname }: { admin: boolean; pathname: stri
     <nav className="sidebar-nav">{links.map((link) => {
       // "Gestão" (/admin) também cobre Usuários e detalhes (/admin/users, /admin/orgs), mas não Indicações.
       const active = pathname === link.href || (link.href !== "/dashboard" && pathname.startsWith(`${link.href}/`) && !(link.href === "/admin" && pathname.startsWith("/admin/affiliates")));
-      return <Link key={link.href} href={link.href} prefetch className={active ? "active" : ""} onClick={() => { if (!active) setNavigating(true); }}><span>{link.icon}</span>{link.label}</Link>;
+      return <Link key={link.href} href={link.href} prefetch className={active ? "active" : ""} onClick={() => { if (!active) setNavigating(true); }}><span>{link.icon}</span><em>{link.label}</em></Link>;
     })}</nav>
   </>;
 }

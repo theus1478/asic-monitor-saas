@@ -15,6 +15,16 @@ export async function Shell({ children, admin = false }: { children: ReactNode; 
       <p className="workspace">{admin ? t("workspaceAdmin") : t("workspaceClient")}</p>
       <SidebarNav admin={admin} />
       <div className="sidebar-bottom"><LanguageSwitcher /><Link href="/change-password" className="text-link" style={{ fontSize: 12 }}>{t("changePassword")}</Link><form action={signOut}><button className="logout-button" type="submit">{t("logout")}</button></form><small>v0.2</small></div>
+      {/* Só aparece no celular/tablet estreito: idioma, senha e sair (a barra lateral inteira some nessa largura). */}
+      <details className="mobile-account">
+        <summary aria-label={t("account")}><span aria-hidden="true">☰</span></summary>
+        <div className="mobile-account-panel">
+          {showAdminShortcut && <Link href="/admin" className="mobile-account-item">⚙ {t("adminShortcut")}</Link>}
+          <LanguageSwitcher />
+          <Link href="/change-password" className="mobile-account-item">{t("changePassword")}</Link>
+          <form action={signOut}><button className="mobile-account-item mobile-account-logout" type="submit">{t("logout")}</button></form>
+        </div>
+      </details>
     </aside>
     <main className="main">
       {showAdminShortcut && <Link href="/admin" className="admin-shortcut">⚙ {t("adminShortcut")}</Link>}

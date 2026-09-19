@@ -464,6 +464,32 @@ coletor (fazenda) ◀───────────────────�
   `E2E_PY_AGENT=python` usa o coletor Python real no lugar do simulador) e
   `apps/agent/tests/test_tunnel.py`.
 
+## Layout responsivo (celular e tablet)
+
+Todo o ajuste para telas estreitas fica em `apps/web/app/mobile.css` (importado depois
+de `globals.css` em `layout.tsx`) e **só existe dentro de `@media (max-width: …)`** —
+acima de 900px (desktop e tablet deitado) nada muda. Os pontos de quebra usados:
+900px (casca do app, tabelas, folhas, formulários), 620px/560px (KPIs e cabeçalho do
+monitoramento compactos), 520px (cartão de login, passos do coletor), 360px/359px (telas
+muito pequenas).
+
+- **Casca (`components.tsx`, `sidebar-nav.tsx`)**: a barra lateral vira uma barra de topo
+  (logo + botão ☰ `details.mobile-account` com idioma, alterar senha, painel admin e sair)
+  e o menu principal vira barra de abas fixa embaixo (some enquanto um campo está em foco,
+  para o teclado não brigar com ela; respeita `env(safe-area-inset-bottom)`).
+- **Tabelas**: `.table-wrap` (painel, admin, afiliados) vira lista de cards; os rótulos das
+  colunas vêm de `stack-tables.tsx`, que copia o texto do `<th>` para `data-label` em cada
+  `<td>` (a tabela fica invisível por um instante até isso rodar, para não “pular”).
+  A tabela da frota (`legacy-monitor.tsx`) tem layout de card próprio (nome/TH·s, IP +
+  botão Remoto/consumo, temperaturas/refrigeração, tipo/uptime/shares/rej.) e um seletor
+  “Ordenar por” no lugar do cabeçalho clicável.
+- **Modais** (`.lm-modal`, `.lm-pool-modal`): folha inferior com até 92dvh; nos dados da
+  máquina as ações vêm logo depois dos números (reordenadas por `order`).
+- **Formulários**: campos com 16px (evita o zoom automático do iOS), altura mínima de
+  44–46px nos alvos de toque; o viewport usa `interactive-widget=resizes-content` para o
+  teclado do Android encolher a página em vez de cobrir o campo.
+- **Cartão do widget Cloudflare** (300px fixos) cabe a partir de 360px; abaixo disso é reduzido.
+
 ## Fases
 
 1. Contas, organizações, fazendas, serviço coletor e ingestão de métricas.
