@@ -43,7 +43,13 @@
     "step1": "Crie sua conta e cadastre a fazenda.",
     "step2": "Baixe e instale o coletor no PC principal.",
     "step3": "Cadastre as ASICs pelo endereço IP local.",
-    "step4": "Acompanhe hash rate e alertas em tempo real."
+    "step4": "Acompanhe hash rate e alertas em tempo real.",
+    "remoteEyebrow": "Acesso remoto",
+    "remoteTitle": "Acesse suas ASICs de qualquer lugar do mundo, como se estivesse na sua própria rede local.",
+    "remoteBody": "Abra a tela original de cada máquina direto do painel — pelo computador ou pelo celular, de fora da fazenda. Sem VPN, sem abrir portas no roteador e sem mudar nada nas ASICs.",
+    "remotePoint1": "Um clique no botão ao lado do IP e a tela da máquina abre, como se você estivesse na rede da fazenda.",
+    "remotePoint2": "Conexão de saída pelo coletor: nenhuma porta da fazenda fica exposta na internet.",
+    "remotePoint3": "Você liga e desliga por fazenda, só quem tem permissão acessa e cada acesso fica registrado."
   },
   "auth": {
     "signUpTitle": "Criar sua conta",
@@ -280,6 +286,8 @@
     "remotePasswordWarning": "Atenção: o login da própria ASIC continua valendo. Se a máquina usa a senha de fábrica, troque-a antes de ligar o acesso remoto.",
     "remoteOpenMachine": "Acessar máquina",
     "remoteOpening": "Abrindo...",
+    "remoteShort": "Remoto",
+    "remoteOpenMachineHint": "Abrir a tela da máquina de fora da rede local",
     "farmsLink": "Retornar",
     "totalHashrate": "Hashrate total",
     "totalConsumption": "Consumo total",

@@ -135,3 +135,18 @@ code,.metric,.farm-stat b,.calculator-result strong,.purchase-total strong{font-
 .lm-ok{color:var(--lm-teal);font-size:13px;margin:8px 0 0}
 .lm-err{color:#ff7b7b;font-size:13px}
 @media(max-width:640px){.lm-remote-head{flex-direction:column}}
+
+/* Botão 🌐 de acesso remoto ao lado do IP (tabela e cards) */
+.lm-remote-btn{margin-left:8px;display:inline-flex;align-items:center;gap:4px;background:#3ddca01f;border:1px solid #3ddca0;color:#3ddca0;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;cursor:pointer;line-height:1.5}
+.lm-remote-btn:hover:not(:disabled){background:#3ddca0;color:#04120c}
+.lm-remote-btn:disabled{opacity:.6;cursor:wait}
+.lm-mc-top .lm-remote-btn{margin:0 6px 0 auto}
+
+/* Destaque de acesso remoto na página inicial */
+.landing-remote{margin:34px 0;padding:34px;border:1px solid #3ddca055;border-radius:16px;background:radial-gradient(circle at 0 0,#3ddca01f,transparent 55%),#0d131b;box-shadow:0 0 40px #3ddca014}
+.landing-remote h2{margin:6px 0 12px;max-width:820px;font-weight:600;letter-spacing:-.03em}
+.landing-remote-body{max-width:760px;color:#a9b6c8;line-height:1.6;margin:0 0 18px}
+.landing-remote ul{margin:0;padding:0;list-style:none;display:grid;gap:10px;max-width:760px}
+.landing-remote li{position:relative;padding-left:26px;color:#d5deea;line-height:1.5}
+.landing-remote li:before{content:"✓";position:absolute;left:0;color:#3ddca0;font-weight:700}
+@media(max-width:640px){.landing-remote{padding:22px 18px}}

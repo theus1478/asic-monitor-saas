@@ -47,6 +47,12 @@ const asic = http.createServer(async (req, res) => {
   if (req.url === "/") { res.writeHead(200, { "content-type": "text/html", "set-cookie": "sid=abc; Path=/; Domain=192.168.1.5" }); return res.end("<h1>ASIC login</h1>"); }
   if (req.url === "/cgi-bin/echo") { res.writeHead(200, { "content-type": "text/plain" }); return res.end(`${req.method}:${body}`); }
   if (req.url === "/redirect") { res.writeHead(302, { location: `http://${ASIC_IP}/cgi-bin/next` }); return res.end(); }
+  const redirects = { "/redir-port": `http://${ASIC_IP}:80/cgi-bin/luci`, "/redir-proto": `//${ASIC_IP}/x`, "/redir-https": `https://${ASIC_IP}/x`, "/redir-ext": "http://example.com/x" };
+  if (redirects[req.url]) { res.writeHead(302, { location: redirects[req.url] }); return res.end(); }
+  if (req.url === "/refresh") { res.writeHead(200, { refresh: `0; url=http://${ASIC_IP}/z` }); return res.end("x"); }
+  if (req.url === "/page") { res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); return res.end(`<script>location.href='http://${ASIC_IP}/cgi-bin/luci'</script><meta http-equiv=refresh content="0;url=http://${ASIC_IP}:80/a"><i>${ASIC_IP}0</i> ção`); }
+  if (req.url === "/json") { res.writeHead(200, { "content-type": "application/json" }); return res.end(JSON.stringify({ u: `http://${ASIC_IP}/api` })); }
+  if (req.url === "/bin") { res.writeHead(200, { "content-type": "application/octet-stream" }); return res.end(Buffer.from(`http://${ASIC_IP}/`)); }
   if (req.url === "/slow") return; // nunca responde
   if (req.url === "/big") { res.writeHead(200); return res.end(Buffer.alloc(200_000, 7)); }
   res.writeHead(404); res.end("nope");
@@ -177,6 +183,26 @@ try {
     const response = await browse(HOST, "/redirect", { headers: { cookie } });
     assert.equal(response.status, 302);
     assert.equal(response.headers.location, `https://${HOST}/cgi-bin/next`);
+  });
+
+  await test("redirecionamentos com porta, sem protocolo e https também voltam para o endereço público; externos ficam", async () => {
+    const { cookie } = await login();
+    const loc = async (path) => (await browse(HOST, path, { headers: { cookie } })).headers.location;
+    assert.equal(await loc("/redir-port"), `https://${HOST}/cgi-bin/luci`);
+    assert.equal(await loc("/redir-proto"), `https://${HOST}/x`);
+    assert.equal(await loc("/redir-https"), `https://${HOST}/x`);
+    assert.equal(await loc("/redir-ext"), "http://example.com/x");
+    assert.equal((await browse(HOST, "/refresh", { headers: { cookie } })).headers.refresh, `0; url=https://${HOST}/z`);
+  });
+
+  await test("corpo de texto (JS/meta refresh/JSON) é reescrito; binário e IP parecido ficam", async () => {
+    const { cookie } = await login();
+    const page = (await browse(HOST, "/page", { headers: { cookie } })).body;
+    assert.ok(page.includes(`location.href='https://${HOST}/cgi-bin/luci'`), page);
+    assert.ok(page.includes(`url=https://${HOST}/a"`), page);
+    assert.ok(page.includes(`<i>${ASIC_IP}0</i> ção`), page);
+    assert.equal(JSON.parse((await browse(HOST, "/json", { headers: { cookie } })).body).u, `https://${HOST}/api`);
+    assert.equal((await browse(HOST, "/bin", { headers: { cookie } })).body, `http://${ASIC_IP}/`);
   });
 
   await test("resposta grande passa inteira", async () => {

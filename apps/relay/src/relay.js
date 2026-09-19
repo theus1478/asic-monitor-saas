@@ -10,6 +10,10 @@ const MAX_INFLIGHT_PER_MINER = 8;
 const SESSION_TTL_SECONDS = 3600;
 const COOKIE_NAME = "__ra";
 const HEARTBEAT_MS = 20_000;
+const MAX_REWRITE_BYTES = 2 * 1024 * 1024;
+const TEXT_TYPE = /^(text\/|application\/(json|javascript|x-javascript|xml)|[^;]*\+(json|xml))/i;
+
+const normalizeIp = (ip) => String(ip ?? "").trim().replace(/\/\d+$/, "");
 
 // Cabeçalhos que não atravessam o proxy (hop-by-hop) ou que o próprio relay recalcula.
 const HOP_HEADERS = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length", "accept-encoding", "content-encoding"]);
@@ -58,7 +62,7 @@ export function createRelay(config) {
     try {
       const rows = await rest(`miners?id=eq.${encodeURIComponent(minerId)}&select=id,enabled,ip,web_port,farm:farms(id,organization_id,remote_access_enabled)`);
       const row = rows[0];
-      if (row?.farm) info = { id: row.id, enabled: row.enabled, ip: row.ip, webPort: row.web_port, farmId: row.farm.id, organizationId: row.farm.organization_id, remoteEnabled: row.farm.remote_access_enabled };
+      if (row?.farm) info = { id: row.id, enabled: row.enabled, ip: normalizeIp(row.ip), webPort: row.web_port, farmId: row.farm.id, organizationId: row.farm.organization_id, remoteEnabled: row.farm.remote_access_enabled };
     } catch (error) {
       log.error("relay: falha ao consultar máquina", minerId, error.message);
       if (cached) return cached.info; // melhor manter o último estado conhecido do que derrubar tudo
@@ -199,18 +203,23 @@ export function createRelay(config) {
       const reply = await forwardToAgent(entry, frame, minerId);
       const outHeaders = {};
       const setCookies = [];
+      const rewriter = makeRewriter(info, `https://${host}`);
       for (const [name, value] of reply.headers ?? []) {
         const lower = String(name).toLowerCase();
         if (HOP_HEADERS.has(lower)) continue;
         if (lower === "set-cookie") { setCookies.push(String(value).replace(/;\s*domain=[^;]*/i, "")); continue; }
-        if (lower === "location") { outHeaders[lower] = rewriteLocation(String(value), info, `https://${host}`); continue; }
+        if (lower === "location" || lower === "content-location" || lower === "refresh") { outHeaders[lower] = rewriter ? rewriter.text(String(value)) : String(value); continue; }
         outHeaders[lower] = outHeaders[lower] ? `${outHeaders[lower]}, ${value}` : String(value);
       }
       if (setCookies.length) outHeaders["set-cookie"] = setCookies;
       outHeaders["cache-control"] ??= "no-store";
       outHeaders["referrer-policy"] = "no-referrer";
       const status = Number.isInteger(reply.status) && reply.status >= 200 && reply.status <= 599 ? reply.status : 502;
-      const payload = reply.body_b64 ? Buffer.from(reply.body_b64, "base64") : Buffer.alloc(0);
+      let payload = reply.body_b64 ? Buffer.from(reply.body_b64, "base64") : Buffer.alloc(0);
+      // Páginas/scripts que citam o IP local (redirecionamento em JS, meta refresh, URLs de API) passam a apontar para o endereço público.
+      if (rewriter && payload.length && payload.length <= MAX_REWRITE_BYTES && TEXT_TYPE.test(String(outHeaders["content-type"] ?? "")) && payload.includes(rewriter.ip)) {
+        payload = Buffer.from(rewriter.text(payload.toString("latin1")), "latin1");
+      }
       res.writeHead(status, outHeaders);
       res.end(payload);
     } catch (error) {
@@ -227,12 +236,16 @@ export function createRelay(config) {
     }
   }
 
-  function rewriteLocation(location, info, publicOrigin) {
-    const port = info.webPort && info.webPort !== 80 ? `:${info.webPort}` : "";
-    for (const prefix of [`http://${info.ip}${port}`, `http://${info.ip}`]) {
-      if (location === prefix || location.startsWith(`${prefix}/`) || location.startsWith(`${prefix}?`)) return `${publicOrigin}${location.slice(prefix.length) || "/"}`;
-    }
-    return location;
+  /** Reescreve referências absolutas ao endereço local da ASIC (http[s]://ip[:porta] ou //ip) para o endereço público.
+   * Firmwares como o LuCI da Whatsminer montam redirecionamentos (cabeçalho, meta refresh, JS) com o IP do Host recebido. */
+  function makeRewriter(info, publicOrigin) {
+    const ip = normalizeIp(info.ip);
+    if (!ip) return null;
+    const escaped = ip.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const plain = new RegExp(`(?:https?:)?//${escaped}(?::\\d{1,5})?(?![\\w.-])`, "gi");
+    const jsonEscaped = new RegExp(`(?:https?:)?\\\\/\\\\/${escaped}(?::\\d{1,5})?(?![\\w.-])`, "gi"); // http:\/\/ip em JSON
+    const publicEscaped = publicOrigin.replace(/\//g, "\\/");
+    return { ip, text: (value) => value.replace(plain, publicOrigin).replace(jsonEscaped, () => publicEscaped) };
   }
 
   const server = http.createServer((req, res) => {

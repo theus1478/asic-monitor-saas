@@ -43,7 +43,13 @@
     "step1": "Załóż konto i zarejestruj farmę.",
     "step2": "Pobierz i zainstaluj kolektor na głównym komputerze.",
     "step3": "Zarejestruj ASIC-i po lokalnym adresie IP.",
-    "step4": "Śledź hashrate i alerty w czasie rzeczywistym."
+    "step4": "Śledź hashrate i alerty w czasie rzeczywistym.",
+    "remoteEyebrow": "Dostęp zdalny",
+    "remoteTitle": "Łącz się ze swoimi ASIC-ami z dowolnego miejsca na świecie, jakbyś był w swojej sieci lokalnej.",
+    "remoteBody": "Otwieraj oryginalny panel każdej maszyny prosto z dashboardu — na komputerze lub telefonie, spoza farmy. Bez VPN, bez otwierania portów w routerze i bez zmian w ASIC-ach.",
+    "remotePoint1": "Jedno kliknięcie przycisku obok adresu IP i panel maszyny się otwiera, jakbyś był w sieci farmy.",
+    "remotePoint2": "Połączenie wychodzące przez kolektor: żaden port farmy nie jest wystawiony do internetu.",
+    "remotePoint3": "Włączasz i wyłączasz per farma, dostęp mają tylko uprawnieni, a każdy dostęp jest rejestrowany."
   },
   "auth": {
     "signUpTitle": "Utwórz konto",
@@ -280,6 +286,8 @@
     "remotePasswordWarning": "Uwaga: logowanie samego ASIC-a nadal obowiązuje. Jeśli maszyna używa hasła fabrycznego, zmień je przed włączeniem dostępu zdalnego.",
     "remoteOpenMachine": "Otwórz maszynę",
     "remoteOpening": "Otwieranie...",
+    "remoteShort": "Zdalnie",
+    "remoteOpenMachineHint": "Otwórz panel maszyny spoza sieci lokalnej",
     "farmsLink": "Wróć",
     "totalHashrate": "Łączny hashrate",
     "totalConsumption": "Łączne zużycie",

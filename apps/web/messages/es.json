@@ -43,7 +43,13 @@
     "step1": "Crea tu cuenta y registra la granja.",
     "step2": "Descarga e instala el colector en el PC principal.",
     "step3": "Registra las ASICs por dirección IP local.",
-    "step4": "Sigue el hash rate y las alertas en tiempo real."
+    "step4": "Sigue el hash rate y las alertas en tiempo real.",
+    "remoteEyebrow": "Acceso remoto",
+    "remoteTitle": "Accede a tus ASIC desde cualquier lugar del mundo, como si estuvieras en tu propia red local.",
+    "remoteBody": "Abre la pantalla original de cada máquina directamente desde el panel — desde el ordenador o el móvil, fuera de la granja. Sin VPN, sin abrir puertos en el router y sin cambiar nada en los ASIC.",
+    "remotePoint1": "Un clic en el botón junto a la IP y se abre la pantalla de la máquina, como si estuvieras en la red de la granja.",
+    "remotePoint2": "Conexión saliente a través del colector: ningún puerto de la granja queda expuesto a internet.",
+    "remotePoint3": "Lo activas o desactivas por granja, solo accede quien tiene permiso y cada acceso queda registrado."
   },
   "auth": {
     "signUpTitle": "Crea tu cuenta",
@@ -280,6 +286,8 @@
     "remotePasswordWarning": "Atención: el inicio de sesión de la propia ASIC sigue vigente. Si la máquina usa la contraseña de fábrica, cámbiala antes de activar el acceso remoto.",
     "remoteOpenMachine": "Acceder a la máquina",
     "remoteOpening": "Abriendo...",
+    "remoteShort": "Remoto",
+    "remoteOpenMachineHint": "Abrir la pantalla de la máquina desde fuera de la red local",
     "farmsLink": "Volver",
     "totalHashrate": "Hashrate total",
     "totalConsumption": "Consumo total",

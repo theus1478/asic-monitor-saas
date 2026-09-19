@@ -32,6 +32,16 @@ export default async function Home() {
       <article className="card"><div className="muted">{t("featureLicenseTitle")}</div><div className="metric">{t("featureLicenseValue")}</div><p className="muted">{t("featureLicenseBody")}</p></article>
       <article className="card"><div className="muted">{t("featureCompatTitle")}</div><div className="metric">{t("featureCompatValue")}</div><p className="muted">{t("featureCompatBody")}</p></article>
     </section>
+    <section className="landing-remote">
+      <p className="eyebrow">{t("remoteEyebrow")}</p>
+      <h2>{t("remoteTitle")}</h2>
+      <p className="landing-remote-body">{t("remoteBody")}</p>
+      <ul>
+        <li>{t("remotePoint1")}</li>
+        <li>{t("remotePoint2")}</li>
+        <li>{t("remotePoint3")}</li>
+      </ul>
+    </section>
     <section className="landing-section">
       <h2>{t("howItWorksTitle")}</h2>
       <p>{t("howItWorksBody")}</p>

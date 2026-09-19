@@ -447,7 +447,14 @@ coletor (fazenda) ◀───────────────────�
   `Accept-Encoding: identity`, `Host/Origin/Referer` reescritos para o IP da ASIC.
 - **Limites**: corpo/resposta ≤ 10 MB, timeout 30 s no relay (25 s no coletor),
   ≤ 8 requisições simultâneas por máquina, ping/pong a cada 20 s.
-  `Location` volta reescrito para o subdomínio; `Set-Cookie` perde o `Domain`.
+  Referências absolutas ao IP local (`http[s]://<ip>[:porta]`, `//<ip>`) são
+  reescritas para o subdomínio público em `Location`, `Refresh`,
+  `Content-Location` e em corpos de texto (HTML/JS/JSON, ≤ 2 MB) — o LuCI da
+  Whatsminer monta redirecionamentos com o IP do `Host` recebido; binários e IPs
+  parecidos (`192.168.0.14` vs `.140`) não são tocados. `Set-Cookie` perde o `Domain`.
+- **Onde o cliente abre**: botão 🌐 "Remoto" ao lado do IP na tabela (e nos cards)
+  e botão "Acessar máquina" no modal; ambos aparecem só com o acesso ligado na
+  fazenda e papel owner/admin/operator.
 - **Limitações da v1**: WebSocket/SSE dentro da tela da ASIC (alguns firmwares,
   ex.: logs ao vivo do VNish) responde 501; upload de firmware > 10 MB é
   bloqueado; o login da própria ASIC continua valendo (recomendar trocar a senha

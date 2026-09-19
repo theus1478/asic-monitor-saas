@@ -43,7 +43,13 @@
     "step1": "Create your account and register the farm.",
     "step2": "Download and install the collector on the main PC.",
     "step3": "Register the ASICs by local IP address.",
-    "step4": "Track hash rate and alerts in real time."
+    "step4": "Track hash rate and alerts in real time.",
+    "remoteEyebrow": "Remote access",
+    "remoteTitle": "Reach your ASICs from anywhere in the world, as if you were on your own local network.",
+    "remoteBody": "Open each machine's original web page straight from the dashboard — on your computer or phone, away from the farm. No VPN, no router ports to open and nothing to change on the ASICs.",
+    "remotePoint1": "One click on the button next to the IP and the machine's page opens, just as if you were on the farm network.",
+    "remotePoint2": "Outbound connection through the collector: no farm port is exposed to the internet.",
+    "remotePoint3": "Turn it on or off per farm, only authorized users get in, and every access is logged."
   },
   "auth": {
     "signUpTitle": "Create your account",
@@ -280,6 +286,8 @@
     "remotePasswordWarning": "Note: the ASIC's own login still applies. If the machine uses the factory password, change it before turning remote access on.",
     "remoteOpenMachine": "Access machine",
     "remoteOpening": "Opening...",
+    "remoteShort": "Remote",
+    "remoteOpenMachineHint": "Open the machine's web page from outside the local network",
     "farmsLink": "Back",
     "totalHashrate": "Total hashrate",
     "totalConsumption": "Total consumption",
